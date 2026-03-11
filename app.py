@@ -89,30 +89,45 @@ def create_pdf(df):
     if 'Annual_Fuel_Cost' in df.columns:
         pdf.cell(200, 10, f"Total Annual Fleet Cost: ${df['Annual_Fuel_Cost'].sum():,.2f}", ln=True)
     # Correct Byte-output for robust PDF generation
-    return bytes(pdf.output(dest="S")
+    return bytes(pdf.output(dest="S"))
 
 # 3. INTERFACE
 st.sidebar.title("Fleet Intel v5.0")
 mode = st.sidebar.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"])
 
 if mode == "Single Vehicle":
-    st.header("Quick Vehicle Profiler")
+    st.header("Vehicle Profile")
     c1, c2 = st.columns(2)
+    
     with c1:
+        # Added to balance UI and provide context
+        v_make = st.text_input("Vehicle Make", "Toyota")
+        v_model = st.text_input("Vehicle Model", "Camry")
         eng = st.number_input("Engine Size (L)", 0.5, 10.0, 2.0)
         cyl = st.number_input("Cylinders", 2, 16, 4)
         fuel_t = st.selectbox("Fuel Type", ["Premium", "Regular", "Diesel", "Ethanol"])
+        
     with c2:
+        # Added to balance UI and fill model slots
+        v_class = st.selectbox("Vehicle Class", ["Compact", "SUV", "Mid-Size", "Pickup"])
+        v_trans = st.selectbox("Transmission", ["Automatic", "Manual"])
         co2 = st.number_input("CO2 Emissions (g/km)", 50, 600, 200)
         comb = st.number_input("Combined L/100km", 2.0, 30.0, 9.0)
+        # Placeholder for visual spacing if needed
+        st.write("") 
 
     if st.button("Generate AI Prediction"):
-        f_val = {"Premium":0, "Regular":1, "Diesel":2, "Ethanol":3}.get(fuel_t, 1)
-        # PRESERVE 12-COLUMN ALIGNMENT
+        f_val = {"Premium": 0, "Regular": 1, "Diesel": 2, "Ethanol": 3}.get(fuel_t, 1)
+        
+        # FEATURE ALIGNMENT MAINTAINED:
+        # Slots 0-3 (Year, Make, Model, Class) and Slot 6 (Transmission) 
+        # are kept as 0/2026 to avoid breaking the brain's expected input shape.
         features = np.array([[2026, 0, 0, 0, eng, cyl, 0, f_val, comb+1, comb-1, comb, co2]])
+        
         scaled = scaler_X.transform(features)
-        rnn_in = np.repeat(scaled[:, np.newaxis, :], 5, axis=1)
+        rnn_in = np.repeat(scaled[:, np.newaxis, :], 5, axis=1) # 5-timestep expansion
         raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
+        
         rating = classify_efficiency(raw_mpg)
         st.metric("Efficiency Score", f"{raw_mpg:.2f} MPG")
         st.success(f"Rating: {rating}")
