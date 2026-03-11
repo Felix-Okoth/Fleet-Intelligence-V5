@@ -6,3 +6,4 @@ joblib
 plotly
 fpdf
 scikit-learn
+openpyxl
