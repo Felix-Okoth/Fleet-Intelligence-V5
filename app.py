@@ -89,7 +89,7 @@ def create_pdf(df):
     if 'Annual_Fuel_Cost' in df.columns:
         pdf.cell(200, 10, f"Total Annual Fleet Cost: ${df['Annual_Fuel_Cost'].sum():,.2f}", ln=True)
     # Correct Byte-output for robust PDF generation
-    return pdf.output(dest="S").encode("latin-1")
+    return bytes(pdf.output(dest="S"))
 
 # 3. INTERFACE
 st.sidebar.title("Fleet Intel v5.0")
