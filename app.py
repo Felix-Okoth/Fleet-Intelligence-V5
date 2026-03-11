@@ -102,7 +102,6 @@ if mode == "Single Vehicle":
     with c1:
         # Added to balance UI and provide context
         v_make = st.text_input("Vehicle Make", "Toyota")
-        v_model = st.text_input("Vehicle Model", "Camry")
         eng = st.number_input("Engine Size (L)", 0.5, 10.0, 2.0)
         cyl = st.number_input("Cylinders", 2, 16, 4)
         fuel_t = st.selectbox("Fuel Type", ["Premium", "Regular", "Diesel", "Ethanol"])
