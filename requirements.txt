@@ -4,6 +4,6 @@ numpy
 tensorflow
 joblib
 plotly
-fpdf
+fpdf2
 scikit-learn
 openpyxl
