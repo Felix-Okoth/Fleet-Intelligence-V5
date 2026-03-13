@@ -6,10 +6,29 @@ import joblib
 import os
 import datetime
 import plotly.express as px
+import requests
 from fpdf import FPDF
+from supabase import create_client
 
 # 1. SETUP & THEME
 st.set_page_config(page_title="Enterprise Fleet Intelligence", layout="wide")
+
+# DATABASE & ALERT CONFIG
+# Note: Ensure these are set in your Streamlit Secrets
+try:
+    supabase = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
+except:
+    st.error("Database connection missing. Please configure secrets.")
+
+def send_push_alert(user_name, event_type="Login"):
+    topic = "my_fleet_alerts_2026" # Subscribe to this in your Ntfy app
+    try:
+        requests.post(f"https://ntfy.sh/{topic}",
+            data=f"{user_name} - {event_type} at {datetime.datetime.now().strftime('%H:%M')}",
+            headers={"Title": "Fleet Intel Activity", "Priority": "high", "Tags": "car,key"}, 
+            timeout=5)
+    except:
+        pass
 
 # AUTHENTICATION
 def check_password():
@@ -17,13 +36,25 @@ def check_password():
         st.session_state.authenticated = False
     if not st.session_state.authenticated:
         st.sidebar.title("Secure Login")
-        user_pwd = st.sidebar.text_input("Corporate Access Key", type="password")
+        u_name = st.sidebar.text_input("Username")
+        u_pwd = st.sidebar.text_input("Corporate Access Key", type="password")
         if st.sidebar.button("Access Platform"):
-            if user_pwd == "fleet2026":
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.sidebar.error("Invalid Key")
+            # Database Look-up
+            try:
+                res = supabase.table("fleet_users").select("*").eq("username", u_name).eq("access_key", u_pwd).execute()
+                if len(res.data) > 0:
+                    st.session_state.authenticated = True
+                    st.session_state.user = u_name
+                    send_push_alert(u_name)
+                    st.rerun()
+                else:
+                    st.sidebar.error("Invalid Credentials")
+            except:
+                # Fallback for dev
+                if u_pwd == "fleet2026":
+                    st.session_state.authenticated = True
+                    st.session_state.user = "Dev_Admin"
+                    st.rerun()
         return False
     return True
 
@@ -54,13 +85,7 @@ FUEL_PRICE, ANNUAL_MILES = 4.50, 15000
 RNN_COLS = ["Model Year", "Make", "Model", "Vehicle Class", "Engine Size", "Cylinders",
             "Transmission", "Fuel Type", "City (L/100km)", "Hwy (L/100km)", "Comb (L/100km)", "CO2 Emissions"]
 
-FUEL_MAP = {
-    "Premium": 0, "Z": 0,
-    "Regular": 1, "X": 1,
-    "Diesel": 2, "D": 2,
-    "Ethanol": 3, "E": 3,
-    "Natural Gas": 4, "N": 4
-}
+FUEL_MAP = {"Premium": 0, "Z": 0, "Regular": 1, "X": 1, "Diesel": 2, "D": 2, "Ethanol": 3, "E": 3, "Natural Gas": 4, "N": 4}
 
 @st.cache_resource
 def load_resources():
@@ -71,54 +96,31 @@ def load_resources():
 
 model, scaler_X, scaler_y = load_resources()
 
-def sanitize_data(df):
-    errors = []
-    rules = {
-        "Engine Size": (0.1, 10.0),
-        "Cylinders": (2, 16),
-        "CO2 Emissions": (20, 1000),
-        "Comb (L/100km)": (1.0, 50.0)
+def deep_scan_data(df):
+    """Scans for Missing, Duplicates, and Outliers (Data Integrity)."""
+    report = {
+        "missing": int(df.isnull().sum().sum()),
+        "duplicates": int(df.duplicated().sum()),
+        "outliers": 0
     }
-    df['Validation_Status'] = "Passed"
-    for col, (min_val, max_val) in rules.items():
+    rules = {"Engine Size": (0.1, 10.0), "Cylinders": (2, 16), "CO2 Emissions": (20, 1000), "Comb (L/100km)": (1.0, 50.0)}
+    flagged_idx = []
+    for col, (min_v, max_v) in rules.items():
         if col in df.columns:
-            invalid_mask = (df[col] < min_val) | (df[col] > max_val)
-            if invalid_mask.any():
-                df.loc[invalid_mask, 'Validation_Status'] = "Flagged"
-                errors.append(f"Invalid values detected in {col}")
-    return df, errors
-
-def prepare_ai_input(data_row, scaler_X):
-    template = np.zeros((len(data_row), 12))
-    input_df = pd.DataFrame(template, columns=RNN_COLS)
-    for col in data_row.columns:
-        if col in RNN_COLS:
-            input_df[col] = data_row[col]
-    input_df["Model Year"] = 2026
-    final_numeric = input_df.apply(pd.to_numeric, errors='coerce').fillna(0)
-    return scaler_X.transform(final_numeric.values)
+            mask = (df[col] < min_v) | (df[col] > max_v)
+            report["outliers"] += mask.sum()
+            flagged_idx.extend(df[mask].index.tolist())
+    return report, list(set(flagged_idx))
 
 def nlp_translator(df):
     df.columns = [c.title().replace('_', ' ').strip() for c in df.columns]
-    mapping = {
-        "Type Of Fuel": "Fuel Type", "Fueltype": "Fuel Type", 
-        "Emissions": "CO2 Emissions", "Co2 Emissions": "CO2 Emissions",
-        "Combined": "Comb (L/100km)", "Combined L/100Km": "Comb (L/100km)"
-    }
+    mapping = {"Type Of Fuel": "Fuel Type", "Fueltype": "Fuel Type", "Emissions": "CO2 Emissions", "Combined": "Comb (L/100km)"}
     df = df.rename(columns=mapping)
-
     if "Transmission" in df.columns:
         df["Trans_Clean"] = df["Transmission"].astype(str).str.upper().str.strip()
-        def map_trans(val):
-            if val.startswith("CVT"): return 2
-            if val.startswith("M"): return 1
-            return 0 
-        df["Transmission"] = df["Trans_Clean"].apply(map_trans)
-
+        df["Transmission"] = df["Trans_Clean"].apply(lambda x: 2 if x.startswith("CVT") else 1 if x.startswith("M") else 0)
     if "Fuel Type" in df.columns:
-        df["Fuel Type"] = df["Fuel Type"].astype(str).str.title().str.strip()
-        df["Fuel Type"] = df["Fuel Type"].map(lambda x: FUEL_MAP.get(x, FUEL_MAP.get(x[0] if x else "X", 1)))
-        
+        df["Fuel Type"] = df["Fuel Type"].astype(str).str.title().str.strip().map(lambda x: FUEL_MAP.get(x, 1))
     return df
 
 def classify_efficiency(mpg):
@@ -126,17 +128,15 @@ def classify_efficiency(mpg):
 
 def create_pdf(df):
     pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("helvetica", 'B', 16)
+    pdf.add_page(); pdf.set_font("helvetica", 'B', 16)
     pdf.cell(200, 10, "Fleet Intelligence Report", ln=True, align='C')
     pdf.set_font("helvetica", size=12); pdf.ln(10)
     pdf.cell(200, 10, f"Avg Efficiency: {df['Predicted_MPG'].mean():.2f} MPG", ln=True)
-    if 'Annual_Fuel_Cost' in df.columns:
-        pdf.cell(200, 10, f"Total Annual Fleet Cost: ${df['Annual_Fuel_Cost'].sum():,.2f}", ln=True)
     return bytes(pdf.output(dest="S"))
 
 # 3. INTERFACE
-st.sidebar.title("Fleet Intel v5.1")
+st.sidebar.title(f"Fleet Intel v5.2")
+st.sidebar.info(f"User: {st.session_state.get('user', 'Guest')}")
 mode = st.sidebar.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"])
 
 if mode == "Single Vehicle":
@@ -154,88 +154,56 @@ if mode == "Single Vehicle":
         comb = st.number_input("Combined L/100km", 2.0, 30.0, 9.0)
 
     if st.button("Generate AI Prediction"):
-        f_val = FUEL_MAP.get(fuel_t, 1) 
+        f_val = FUEL_MAP.get(fuel_t, 1)
         t_val = 2 if v_trans == "CVT" else 1 if v_trans == "Manual" else 0
-        
         features = np.array([[2026, 0, 0, 0, eng, cyl, t_val, f_val, comb+1, comb-1, comb, co2]])
         scaled = scaler_X.transform(features)
         rnn_in = np.repeat(scaled[:, np.newaxis, :], 5, axis=1) 
         raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
-        
-        if raw_mpg <= 0:
-            raw_mpg = 0.1
-            st.warning("Prediction anomaly detected. Output adjusted for safety.")
-        
-        rating = classify_efficiency(raw_mpg)
-        st.metric("Efficiency Score", f"{raw_mpg:.2f} MPG")
-        st.success(f"Rating: {rating}")
-        st.session_state['last_single_tensor'] = features[0]
+        st.metric("Efficiency Score", f"{max(0.1, raw_mpg):.2f} MPG")
+        st.success(f"Rating: {classify_efficiency(raw_mpg)}")
 
 else:
     st.header("Enterprise Analytics Engine")
     file = st.file_uploader("Upload Fleet Data", type=["csv", "xlsx"])
     if file:
-        df = pd.read_csv(file) if file.name.endswith('.csv') else pd.read_excel(file)
-        df = nlp_translator(df) 
-        df, error_msgs = sanitize_data(df)
+        df_raw = pd.read_csv(file) if file.name.endswith('.csv') else pd.read_excel(file)
+        df = nlp_translator(df_raw.copy())
         
-        if error_msgs:
-            st.error(f"Data Integrity Issues: {', '.join(error_msgs)}")
-            st.info("Flagged rows will be processed but may result in inaccurate AI scores.")
+        # DATA INTEGRITY DASHBOARD
+        report, bad_rows = deep_scan_data(df)
+        
+        with st.expander("Data Integrity Health Report", expanded=True):
+            k1, k2, k3 = st.columns(3)
+            k1.metric("Missing Cells", report["missing"], delta="Action Required" if report["missing"] > 0 else None, delta_color="inverse")
+            k2.metric("Duplicate Rows", report["duplicates"])
+            k3.metric("Invalid Outliers", report["outliers"])
+            
+            if len(bad_rows) > 0:
+                st.warning("Some rows contain physically impossible data and may skew results.")
+                if st.checkbox("View flagged rows"):
+                    st.dataframe(df_raw.iloc[bad_rows])
 
         if st.button("Process Intelligence"):
-            ai_in_raw = prepare_ai_input(df, scaler_X)
-            ai_in = scaler_X.inverse_transform(ai_in_raw)
+            # Prepare AI Input
+            template = np.zeros((len(df), 12))
+            input_df = pd.DataFrame(template, columns=RNN_COLS)
+            for col in df.columns:
+                if col in RNN_COLS: input_df[col] = df[col]
+            
+            ai_in_raw = scaler_X.transform(input_df.apply(pd.to_numeric, errors='coerce').fillna(0).values)
             rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1)
             raw_preds = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in))).flatten()
             
-            df["Predicted_MPG"] = raw_preds
-            df["Predicted_MPG"] = df["Predicted_MPG"].replace(0, 0.1)
+            df["Predicted_MPG"] = [max(0.1, p) for p in raw_preds]
             df["Annual_Fuel_Cost"] = (ANNUAL_MILES / df["Predicted_MPG"]) * FUEL_PRICE
             df["Efficiency_Rating"] = df["Predicted_MPG"].apply(classify_efficiency)
 
-            k1, k2 = st.columns(2)
-            k1.metric("Total Fleet Spend", f"${df['Annual_Fuel_Cost'].sum():,.0f}")
-            k2.metric("Avg Fleet MPG", f"{df['Predicted_MPG'].mean():.1f}")
+            st.divider()
+            m1, m2 = st.columns(2)
+            m1.metric("Total Fleet Spend", f"${df['Annual_Fuel_Cost'].sum():,.0f}")
+            m2.metric("Avg Fleet MPG", f"{df['Predicted_MPG'].mean():.1f}")
             st.dataframe(df)
-            fig = px.scatter(df, x="Engine Size", y="Predicted_MPG", color="Efficiency_Rating", template="plotly_dark")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(px.scatter(df, x="Engine Size", y="Predicted_MPG", color="Efficiency_Rating", template="plotly_dark"), use_container_width=True)
             st.download_button("Download Executive PDF", create_pdf(df), "fleet_report.pdf")
-            st.session_state['last_bulk_tensor'] = ai_in[0]
-
-st.divider()
-with st.expander("🛠️ Developer Audit: Feature Alignment Check", expanded=True):
-    has_single = 'last_single_tensor' in st.session_state
-    has_bulk = 'last_bulk_tensor' in st.session_state
-    
-    if has_single or has_bulk:
-        single_vals = st.session_state.get('last_single_tensor', np.zeros(12))
-        bulk_vals = st.session_state.get('last_bulk_tensor', np.zeros(12))
-        
-        # 1. Create Comparison
-        comparison = pd.DataFrame({"Feature Name": RNN_COLS, "Single Mode": single_vals, "Bulk Mode": bulk_vals})
-        comparison["Mismatch"] = comparison["Single Mode"] != comparison["Bulk Mode"]
-        
-        # 2. Sort so mismatches always appear in the first rows
-        comparison = comparison.sort_values(by="Mismatch", ascending=False)
-
-        # 3. Highlighting logic
-        def highlight_diff(row):
-            color = 'background-color: rgba(255, 75, 75, 0.4)' if row.Mismatch else ''
-            return [color] * len(row)
-
-        # 4. Feedback messages
-        if has_single and has_bulk:
-            diff_count = comparison["Mismatch"].sum()
-            if diff_count == 0:
-                st.success("**STATUS: PERFECT ALIGNMENT.** Math is identical.")
-            else:
-                mismatched_names = comparison[comparison["Mismatch"]]["Feature Name"].tolist()
-                st.error(f"**DISCREPANCY DETECTED.** Check the first {diff_count} row(s) below.")
-                st.info(f"**Mismatching Features:** {', '.join(mismatched_names)}")
-
-        # 5. THE FIX: Hide the column instead of dropping it
-        styled_table = comparison.style.apply(highlight_diff, axis=1).hide(axis="columns", subset=["Mismatch"])
-        st.dataframe(styled_table, use_container_width=True)
-    else:
-        st.info("Perform both actions to compare.")
+            send_push_alert(st.session_state.user, f"Processed {len(df)} vehicles")
