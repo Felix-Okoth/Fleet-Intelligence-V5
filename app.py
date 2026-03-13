@@ -6,55 +6,24 @@ import joblib
 import os
 import datetime
 import plotly.express as px
-import requests
 from fpdf import FPDF
-from supabase import create_client
 
 # 1. SETUP & THEME
 st.set_page_config(page_title="Enterprise Fleet Intelligence", layout="wide")
 
-# DATABASE & ALERT CONFIG
-# Note: Ensure these are set in your Streamlit Secrets
-try:
-    supabase = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
-except:
-    st.error("Database connection missing. Please configure secrets.")
-
-def send_push_alert(user_name, event_type="Login"):
-    topic = "my_fleet_alerts_2026" # Subscribe to this in your Ntfy app
-    try:
-        requests.post(f"https://ntfy.sh/{topic}",
-            data=f"{user_name} - {event_type} at {datetime.datetime.now().strftime('%H:%M')}",
-            headers={"Title": "Fleet Intel Activity", "Priority": "high", "Tags": "car,key"}, 
-            timeout=5)
-    except:
-        pass
-
-# AUTHENTICATION
+# AUTHENTICATION (Simple Key)
 def check_password():
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
     if not st.session_state.authenticated:
         st.sidebar.title("Secure Login")
-        u_name = st.sidebar.text_input("Username")
-        u_pwd = st.sidebar.text_input("Corporate Access Key", type="password")
+        user_pwd = st.sidebar.text_input("Corporate Access Key", type="password")
         if st.sidebar.button("Access Platform"):
-            # Database Look-up
-            try:
-                res = supabase.table("fleet_users").select("*").eq("username", u_name).eq("access_key", u_pwd).execute()
-                if len(res.data) > 0:
-                    st.session_state.authenticated = True
-                    st.session_state.user = u_name
-                    send_push_alert(u_name)
-                    st.rerun()
-                else:
-                    st.sidebar.error("Invalid Credentials")
-            except:
-                # Fallback for dev
-                if u_pwd == "fleet2026":
-                    st.session_state.authenticated = True
-                    st.session_state.user = "Dev_Admin"
-                    st.rerun()
+            if user_pwd == "fleet2026":
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.sidebar.error("Invalid Key")
         return False
     return True
 
@@ -103,7 +72,13 @@ def deep_scan_data(df):
         "duplicates": int(df.duplicated().sum()),
         "outliers": 0
     }
-    rules = {"Engine Size": (0.1, 10.0), "Cylinders": (2, 16), "CO2 Emissions": (20, 1000), "Comb (L/100km)": (1.0, 50.0)}
+    # Define physical boundary rules for vehicles
+    rules = {
+        "Engine Size": (0.1, 10.0), 
+        "Cylinders": (2, 16), 
+        "CO2 Emissions": (20, 1000), 
+        "Comb (L/100km)": (1.0, 50.0)
+    }
     flagged_idx = []
     for col, (min_v, max_v) in rules.items():
         if col in df.columns:
@@ -136,7 +111,6 @@ def create_pdf(df):
 
 # 3. INTERFACE
 st.sidebar.title(f"Fleet Intel v5.2")
-st.sidebar.info(f"User: {st.session_state.get('user', 'Guest')}")
 mode = st.sidebar.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"])
 
 if mode == "Single Vehicle":
@@ -175,17 +149,16 @@ else:
         
         with st.expander("Data Integrity Health Report", expanded=True):
             k1, k2, k3 = st.columns(3)
-            k1.metric("Missing Cells", report["missing"], delta="Action Required" if report["missing"] > 0 else None, delta_color="inverse")
+            k1.metric("Missing Cells", report["missing"], delta="Check Data" if report["missing"] > 0 else None, delta_color="inverse")
             k2.metric("Duplicate Rows", report["duplicates"])
             k3.metric("Invalid Outliers", report["outliers"])
             
             if len(bad_rows) > 0:
-                st.warning("Some rows contain physically impossible data and may skew results.")
+                st.warning("Some rows contain data that falls outside normal mechanical ranges.")
                 if st.checkbox("View flagged rows"):
                     st.dataframe(df_raw.iloc[bad_rows])
 
         if st.button("Process Intelligence"):
-            # Prepare AI Input
             template = np.zeros((len(df), 12))
             input_df = pd.DataFrame(template, columns=RNN_COLS)
             for col in df.columns:
@@ -206,4 +179,3 @@ else:
             st.dataframe(df)
             st.plotly_chart(px.scatter(df, x="Engine Size", y="Predicted_MPG", color="Efficiency_Rating", template="plotly_dark"), use_container_width=True)
             st.download_button("Download Executive PDF", create_pdf(df), "fleet_report.pdf")
-            send_push_alert(st.session_state.user, f"Processed {len(df)} vehicles")
