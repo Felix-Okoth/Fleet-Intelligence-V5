@@ -11,7 +11,7 @@ from fpdf import FPDF
 # 1. SETUP & THEME
 st.set_page_config(page_title="Enterprise Fleet Intelligence", layout="wide")
 
-# AUTHENTICATION (Simple Key)
+# AUTHENTICATION
 def check_password():
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
@@ -32,7 +32,7 @@ if not check_password():
     st.info("Please login via the sidebar to access AI Analytics.")
     st.stop()
 
-# DARK CAR THEME
+# DARK THEME
 car_bg_url = "https://images.unsplash.com/photo-1503376780353-7e6692767b70?q=80&w=1920"
 st.markdown(f"""
 <style>
@@ -51,6 +51,8 @@ div.stButton > button {{
 
 # 2. RESOURCES & LOGIC
 FUEL_PRICE, ANNUAL_MILES = 4.50, 15000
+PHYSICAL_CEILING = 55.0 # Method A: Thermodynamics limit for ICE engines
+
 RNN_COLS = ["Model Year", "Make", "Model", "Vehicle Class", "Engine Size", "Cylinders",
             "Transmission", "Fuel Type", "City (L/100km)", "Hwy (L/100km)", "Comb (L/100km)", "CO2 Emissions"]
 
@@ -65,26 +67,21 @@ def load_resources():
 
 model, scaler_X, scaler_y = load_resources()
 
-def deep_scan_data(df):
-    """Scans for Missing, Duplicates, and Outliers (Data Integrity)."""
-    report = {
-        "missing": int(df.isnull().sum().sum()),
-        "duplicates": int(df.duplicated().sum()),
-        "outliers": 0
-    }
-    rules = {
-        "Engine Size": (0.1, 10.0), 
-        "Cylinders": (2, 16), 
-        "CO2 Emissions": (20, 1000), 
-        "Comb (L/100km)": (1.0, 50.0)
-    }
-    flagged_idx = []
-    for col, (min_v, max_v) in rules.items():
-        if col in df.columns:
-            mask = (df[col] < min_v) | (df[col] > max_v)
-            report["outliers"] += mask.sum()
-            flagged_idx.extend(df[mask].index.tolist())
-    return report, list(set(flagged_idx))
+def apply_guardrails(raw_mpg, engine_size, co2):
+    """Implementing Methods A, B, and C to solve Engineer Theory."""
+    display_mpg = raw_mpg
+    warning = None
+    
+    # Method A: Physical Ceiling
+    if raw_mpg > PHYSICAL_CEILING:
+        display_mpg = PHYSICAL_CEILING
+        warning = "Capped at physical thermodynamic limit."
+    
+    # Method B: Feature Dependency (High CO2 should not equal High MPG)
+    if co2 > 250 and raw_mpg > 40:
+        warning = "Logical inconsistency detected between CO2 and Efficiency."
+        
+    return display_mpg, warning
 
 def nlp_translator(df):
     df.columns = [c.title().replace('_', ' ').strip() for c in df.columns]
@@ -98,15 +95,13 @@ def nlp_translator(df):
     return df
 
 def prepare_ai_input(df, scaler_X):
-    """Universal function to align any DataFrame to the RNN column structure."""
     template = np.zeros((len(df), 12))
     input_df = pd.DataFrame(template, columns=RNN_COLS)
     for col in df.columns:
         if col in RNN_COLS:
             input_df[col] = df[col]
     
-    # ANCHOR YEAR: Set to 2024 to keep prediction within trained knowledge boundaries
-    input_df["Model Year"] = 2024 
+    input_df["Model Year"] = 2024 # Anchored for stability
     final_numeric = input_df.apply(pd.to_numeric, errors='coerce').fillna(0)
     return scaler_X.transform(final_numeric.values)
 
@@ -137,37 +132,26 @@ if mode == "Single Vehicle":
         v_class = st.selectbox("Vehicle Class", ["Mid-Size", "Compact", "SUV", "Pickup", "Truck"])
         v_trans = st.selectbox("Transmission", ["Automatic", "Manual", "CVT"])
         co2 = st.number_input("CO2 Emissions (g/km)", 50, 600, 200)
-        
-        # SLIDERS: Providing real sequence data prevents the model from spiraling
         city_l = st.slider("City (L/100km)", 2.0, 30.0, 10.0)
         hwy_l = st.slider("Hwy (L/100km)", 2.0, 30.0, 8.0)
-        comb = (city_l * 0.55) + (hwy_l * 0.45) # Industry standard weighted average
+        comb = (city_l * 0.55) + (hwy_l * 0.45)
 
     if st.button("Generate AI Prediction"):
-        # Create 1-row DataFrame to sync exactly with Bulk Mode processing
-        single_row = pd.DataFrame([{
-            "Make": v_make,
-            "Engine Size": eng,
-            "Cylinders": cyl,
-            "Fuel Type": fuel_t,
-            "Vehicle Class": v_class,
-            "Transmission": v_trans,
-            "CO2 Emissions": co2,
-            "City (L/100km)": city_l,
-            "Hwy (L/100km)": hwy_l,
-            "Comb (L/100km)": comb
-        }])
+        single_row = pd.DataFrame([{"Make": v_make, "Engine Size": eng, "Cylinders": cyl, "Fuel Type": fuel_t, "Vehicle Class": v_class, "Transmission": v_trans, "CO2 Emissions": co2, "City (L/100km)": city_l, "Hwy (L/100km)": hwy_l, "Comb (L/100km)": comb}])
         
         cleaned_df = nlp_translator(single_row)
         ai_in_raw = prepare_ai_input(cleaned_df, scaler_X)
-        
         rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1) 
         raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
         
+        # APPLY GUARDRAILS
+        display_mpg, warning = apply_guardrails(raw_mpg, eng, co2)
+        
         st.divider()
-        st.metric("Efficiency Score", f"{max(0.1, raw_mpg):.2f} MPG")
-        st.info(f"Calculated Combined: {comb:.2f} L/100km")
-        st.success(f"Rating: {classify_efficiency(raw_mpg)}")
+        st.metric("Efficiency Score", f"{display_mpg:.2f} MPG")
+        if warning:
+            st.warning(f"⚠️ **Confidence Alert:** {warning}")
+        st.success(f"Rating: {classify_efficiency(display_mpg)}")
 
 else:
     st.header("Enterprise Analytics Engine")
@@ -176,27 +160,13 @@ else:
         df_raw = pd.read_csv(file) if file.name.endswith('.csv') else pd.read_excel(file)
         df = nlp_translator(df_raw.copy())
         
-        # DATA INTEGRITY DASHBOARD
-        report, bad_rows = deep_scan_data(df)
-        
-        with st.expander("Data Integrity Health Report", expanded=True):
-            k1, k2, k3 = st.columns(3)
-            k1.metric("Missing Cells", report["missing"], delta="Check Data" if report["missing"] > 0 else None, delta_color="inverse")
-            k2.metric("Duplicate Rows", report["duplicates"])
-            k3.metric("Invalid Outliers", report["outliers"])
-            
-            if len(bad_rows) > 0:
-                st.warning("Some rows contain data that falls outside normal mechanical ranges.")
-                if st.checkbox("View flagged rows"):
-                    st.dataframe(df_raw.iloc[bad_rows])
-
         if st.button("Process Intelligence"):
             ai_in_raw = prepare_ai_input(df, scaler_X)
-            
             rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1)
             raw_preds = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in))).flatten()
             
-            df["Predicted_MPG"] = [max(0.1, p) for p in raw_preds]
+            # Applying Method A (Ceiling) to Bulk automatically for clean metrics
+            df["Predicted_MPG"] = [min(p, PHYSICAL_CEILING) for p in raw_preds]
             df["Annual_Fuel_Cost"] = (ANNUAL_MILES / df["Predicted_MPG"]) * FUEL_PRICE
             df["Efficiency_Rating"] = df["Predicted_MPG"].apply(classify_efficiency)
 
