@@ -104,8 +104,9 @@ def prepare_ai_input(df, scaler_X):
     for col in df.columns:
         if col in RNN_COLS:
             input_df[col] = df[col]
-    # Ensure mandatory numeric fields
-    input_df["Model Year"] = 2026
+    
+    # ANCHOR YEAR: Set to 2024 to keep prediction within trained knowledge boundaries
+    input_df["Model Year"] = 2024 
     final_numeric = input_df.apply(pd.to_numeric, errors='coerce').fillna(0)
     return scaler_X.transform(final_numeric.values)
 
@@ -131,15 +132,19 @@ if mode == "Single Vehicle":
         v_make = st.text_input("Vehicle Make", "Toyota")
         eng = st.number_input("Engine Size (L)", 0.5, 10.0, 2.0)
         cyl = st.number_input("Cylinders", 2, 16, 4)
-        fuel_t = st.selectbox("Fuel Type", ["Premium", "Regular", "Diesel", "Ethanol"])
+        fuel_t = st.selectbox("Fuel Type", ["Regular", "Premium", "Diesel", "Ethanol"])
     with c2:
-        v_class = st.selectbox("Vehicle Class", ["Truck","Compact", "SUV", "Mid-Size", "Pickup"])
+        v_class = st.selectbox("Vehicle Class", ["Mid-Size", "Compact", "SUV", "Pickup", "Truck"])
         v_trans = st.selectbox("Transmission", ["Automatic", "Manual", "CVT"])
         co2 = st.number_input("CO2 Emissions (g/km)", 50, 600, 200)
-        comb = st.number_input("Combined L/100km", 2.0, 30.0, 9.0)
+        
+        # SLIDERS: Providing real sequence data prevents the model from spiraling
+        city_l = st.slider("City (L/100km)", 2.0, 30.0, 10.0)
+        hwy_l = st.slider("Hwy (L/100km)", 2.0, 30.0, 8.0)
+        comb = (city_l * 0.55) + (hwy_l * 0.45) # Industry standard weighted average
 
     if st.button("Generate AI Prediction"):
-        # UNIFIED LOGIC: Convert inputs to a DataFrame to match Bulk mode logic exactly
+        # Create 1-row DataFrame to sync exactly with Bulk Mode processing
         single_row = pd.DataFrame([{
             "Make": v_make,
             "Engine Size": eng,
@@ -148,19 +153,20 @@ if mode == "Single Vehicle":
             "Vehicle Class": v_class,
             "Transmission": v_trans,
             "CO2 Emissions": co2,
-            "Comb (L/100km)": comb,
-            "City (L/100km)": comb + 1,
-            "Hwy (L/100km)": comb - 1
+            "City (L/100km)": city_l,
+            "Hwy (L/100km)": hwy_l,
+            "Comb (L/100km)": comb
         }])
         
-        # Pass through the exact same pipeline as Bulk
         cleaned_df = nlp_translator(single_row)
         ai_in_raw = prepare_ai_input(cleaned_df, scaler_X)
         
         rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1) 
         raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
         
+        st.divider()
         st.metric("Efficiency Score", f"{max(0.1, raw_mpg):.2f} MPG")
+        st.info(f"Calculated Combined: {comb:.2f} L/100km")
         st.success(f"Rating: {classify_efficiency(raw_mpg)}")
 
 else:
@@ -185,7 +191,6 @@ else:
                     st.dataframe(df_raw.iloc[bad_rows])
 
         if st.button("Process Intelligence"):
-            # Uses the same helper function as Single Mode
             ai_in_raw = prepare_ai_input(df, scaler_X)
             
             rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1)
