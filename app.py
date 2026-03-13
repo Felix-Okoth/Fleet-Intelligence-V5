@@ -130,8 +130,9 @@ if mode == "Single Vehicle":
     c1, c2 = st.columns(2)
     with c1:
         v_make = st.text_input("Vehicle Make", "Toyota")
-        eng = st.number_input("Engine Size (L)", 0.5, 10.0, 2.0)
-        cyl = st.number_input("Cylinders", 2, 16, 4)
+        # UPDATED TO BARS (SLIDERS)
+        eng = st.slider("Engine Size (L)", 0.5, 10.0, 2.0, step=0.1)
+        cyl = st.slider("Cylinders", 2, 16, 4, step=1)
         fuel_t = st.selectbox("Fuel Type", ["Regular", "Premium", "Diesel", "Ethanol"])
         # DYNAMIC YEAR SLIDER
         v_year = st.slider("Model Year", 1995, 2026, 2024)
@@ -139,9 +140,10 @@ if mode == "Single Vehicle":
     with c2:
         v_class = st.selectbox("Vehicle Class", ["Mid-Size", "Compact", "SUV", "Pickup", "Truck"])
         v_trans = st.selectbox("Transmission", ["Automatic", "Manual", "CVT"])
-        co2 = st.number_input("CO2 Emissions (g/km)", 50, 600, 200)
-        city_l = st.slider("City (L/100km)", 2.0, 30.0, 10.0)
-        hwy_l = st.slider("Hwy (L/100km)", 2.0, 30.0, 8.0)
+        # UPDATED TO BARS (SLIDERS)
+        co2 = st.slider("CO2 Emissions (g/km)", 50, 600, 200, step=1)
+        city_l = st.slider("City (L/100km)", 2.0, 30.0, 10.0, step=0.1)
+        hwy_l = st.slider("Hwy (L/100km)", 2.0, 30.0, 8.0, step=0.1)
         comb = (city_l * 0.55) + (hwy_l * 0.45)
 
     if st.button("Generate AI Prediction"):
