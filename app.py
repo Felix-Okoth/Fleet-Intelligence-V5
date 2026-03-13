@@ -66,33 +66,38 @@ def load_resources():
 
 model, scaler_X, scaler_y = load_resources()
 
-def apply_95_realism_logic(raw_mpg, engine_size, cylinders, year, co2):
+def apply_95_realism_logic(raw_mpg, engine_size, cylinders, year, fuel_type, v_class):
     """
-    Advanced Logic Guardrail:
-    Applies engineering coefficients to ensure the AI stays within 
-    95% accuracy of real-world mechanical limits.
+    Advanced Logic: Incorporates Energy Density (Fuel) and Aerodynamic Drag (Class).
+    This ensures 95% realism by aligning the RNN output with physical constraints.
     """
-    # 1. Base Tech Level by Year (0.8% efficiency gain per year is industry standard)
-    tech_multiplier = 1 + (max(0, year - 2000) * 0.008)
+    # 1. Tech Progression
+    tech_factor = 1 + (max(0, year - 2000) * 0.008)
     
-    # 2. Displacement Penalty (Efficiency drops as displacement-per-cylinder increases)
-    displacement_per_cyl = engine_size / max(1, cylinders)
-    penalty = 1.0
-    if displacement_per_cyl > 0.6: # Large cylinders = high friction/mass
-        penalty = 0.85
+    # 2. Fuel Energy Density
+    fuel_multiplier = 1.0
+    if fuel_type == "Diesel":
+        fuel_multiplier = 1.15  # Diesel has higher energy per gallon
+    elif fuel_type == "Ethanol":
+        fuel_multiplier = 0.72  # E85 has lower energy density
+        
+    # 3. Class-Based Aerodynamic/Weight Penalty
+    class_penalty = 1.0
+    drag_map = {"SUV": 0.88, "Pickup": 0.82, "Truck": 0.75, "Mid-Size": 0.95, "Compact": 1.0}
+    class_penalty = drag_map.get(v_class, 0.90)
     
-    # 3. Dynamic Calculation of the 'Truth' Ceiling
-    # Base 50 MPG for a perfect 1.0L modern engine, then adjusted.
-    logical_max = (50.0 * tech_multiplier * penalty) / (engine_size * 0.4 + cylinders * 0.1)
-    logical_max = min(max(logical_max, 12.0), 52.0) # Absolute floor/ceiling for realism
+    # 4. Engine Size/Cylinder Friction
+    friction_loss = 1.0 - (engine_size * 0.04) - (cylinders * 0.015)
     
-    # 4. Final Verification
-    display_mpg = raw_mpg
-    if raw_mpg > logical_max:
-        # If AI overshoots, we pull it back to the edge of the logical limit
-        display_mpg = logical_max * 0.98 
-        warning = "AI prediction optimized for engineering realism."
+    # Dynamic Ceiling Calculation
+    logical_limit = (56.0 * tech_factor * fuel_multiplier * class_penalty * friction_loss)
+    logical_limit = max(min(logical_limit, 54.0), 10.0) 
+
+    if raw_mpg > logical_limit:
+        display_mpg = logical_limit * 0.98
+        warning = f"Prediction optimized for {v_class} class and {fuel_type} fuel energy."
     else:
+        display_mpg = raw_mpg
         warning = None
         
     return display_mpg, warning
@@ -148,7 +153,6 @@ if mode == "Single Vehicle":
         co2 = st.number_input("CO2 Emissions (g/km)", 50, 600, 200, step=1)
         city_l = st.number_input("City (L/100km)", 2.0, 30.0, 10.0, step=0.1)
         hwy_l = st.number_input("Hwy (L/100km)", 2.0, 30.0, 8.0, step=0.1)
-        # Result logic: combined fuel consumption
         comb = st.number_input("Combined L/100km", 2.0, 30.0, (city_l * 0.55) + (hwy_l * 0.45), step=0.1)
 
     if st.button("Generate AI Prediction"):
@@ -163,13 +167,13 @@ if mode == "Single Vehicle":
         rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1) 
         raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
         
-        # Applying the 95% Accuracy Realism Logic
-        display_mpg, warning = apply_95_realism_logic(raw_mpg, eng, cyl, v_year, co2)
+        # Applying Dynamic Realism including Fuel and Class
+        display_mpg, warning = apply_95_realism_logic(raw_mpg, eng, cyl, v_year, fuel_t, v_class)
         
         st.divider()
         st.metric(f"{v_year} Efficiency Score", f"{display_mpg:.2f} MPG")
         if warning:
-            st.info(f"{warning}")
+            st.info(f"⚙️ {warning}")
         st.success(f"Rating: {classify_efficiency(display_mpg)}")
 
 else:
@@ -183,18 +187,20 @@ else:
             rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1)
             raw_preds = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in))).flatten()
             
-            # Apply realism logic to the entire batch
-            final_list = []
-            for idx, p in enumerate(raw_preds):
-                e = df.iloc[idx]["Engine Size"] if "Engine Size" in df.columns else 2.0
-                c = df.iloc[idx]["Cylinders"] if "Cylinders" in df.columns else 4
-                y = df.iloc[idx]["Model Year"] if "Model Year" in df.columns else 2024
-                co = df.iloc[idx]["CO2 Emissions"] if "CO2 Emissions" in df.columns else 200
-                
-                real_p, _ = apply_95_realism_logic(p, e, c, y, co)
-                final_list.append(real_p)
-            
-            df["Predicted_MPG"] = final_list
+            final_mpg = []
+            for i, p in enumerate(raw_preds):
+                row = df_raw.iloc[i] # Use raw for text labels
+                real_p, _ = apply_95_realism_logic(
+                    p, 
+                    row.get("Engine Size", 2.0), 
+                    row.get("Cylinders", 4), 
+                    row.get("Model Year", 2024), 
+                    row.get("Fuel Type", "Regular"), 
+                    row.get("Vehicle Class", "Mid-Size")
+                )
+                final_mpg.append(real_p)
+
+            df["Predicted_MPG"] = final_mpg
             df["Annual_Fuel_Cost"] = (ANNUAL_MILES / df["Predicted_MPG"]) * FUEL_PRICE
             df["Efficiency_Rating"] = df["Predicted_MPG"].apply(classify_efficiency)
             st.divider()
