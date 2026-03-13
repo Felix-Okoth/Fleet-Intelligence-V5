@@ -154,7 +154,7 @@ if mode == "Single Vehicle":
         cyl = st.number_input("Cylinders", 2, 16, 4)
         fuel_t = st.selectbox("Fuel Type", ["Premium", "Regular", "Diesel", "Ethanol"])
     with c2:
-        v_class = st.selectbox("Vehicle Class", ["Compact", "SUV", "Mid-Size", "Pickup"])
+        v_class = st.selectbox("Vehicle Class", ["Truck","Compact", "SUV", "Mid-Size", "Pickup"])
         v_trans = st.selectbox("Transmission", ["Automatic", "Manual", "CVT"])
         co2 = st.number_input("CO2 Emissions (g/km)", 50, 600, 200)
         comb = st.number_input("Combined L/100km", 2.0, 30.0, 9.0)
