@@ -430,7 +430,7 @@ else:
 
 st.divider()
 
-with st.expander("🛠️ Developer Audit: Feature Alignment Check"):
+with st.expander("Developer Audit: Feature Alignment Check"):
 
     has_single = 'last_single_tensor' in st.session_state
 
