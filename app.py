@@ -51,7 +51,7 @@ div.stButton > button {{
 
 # 2. RESOURCES & LOGIC
 FUEL_PRICE, ANNUAL_MILES = 4.50, 15000
-PHYSICAL_CEILING = 55.0 # Method A: Thermodynamics limit for ICE engines
+PHYSICAL_CEILING = 55.0 
 
 RNN_COLS = ["Model Year", "Make", "Model", "Vehicle Class", "Engine Size", "Cylinders",
             "Transmission", "Fuel Type", "City (L/100km)", "Hwy (L/100km)", "Comb (L/100km)", "CO2 Emissions"]
@@ -68,23 +68,15 @@ def load_resources():
 model, scaler_X, scaler_y = load_resources()
 
 def apply_guardrails(raw_mpg, engine_size, co2, year):
-    """Implementing Methods A, B, and C to solve Engineer Theory."""
     display_mpg = raw_mpg
     warning = None
-    
-    # Method A: Physical Ceiling
     if raw_mpg > PHYSICAL_CEILING:
         display_mpg = PHYSICAL_CEILING
         warning = "Capped at physical thermodynamic limit."
-    
-    # Method B: Feature Dependency
     if co2 > 250 and raw_mpg > 40:
         warning = "Logical inconsistency detected between CO2 and Efficiency."
-        
-    # Method C: Extrapolation Logic
     if year > 2025 and raw_mpg > 45:
         warning = "High-uncertainty prediction due to future-year extrapolation."
-        
     return display_mpg, warning
 
 def nlp_translator(df):
@@ -99,14 +91,11 @@ def nlp_translator(df):
     return df
 
 def prepare_ai_input(df, scaler_X):
-    """Universal function to align any DataFrame to the RNN column structure."""
     template = np.zeros((len(df), 12))
     input_df = pd.DataFrame(template, columns=RNN_COLS)
     for col in df.columns:
         if col in RNN_COLS:
             input_df[col] = df[col]
-    
-    # Year is now handled dynamically from the input dataframe
     final_numeric = input_df.apply(pd.to_numeric, errors='coerce').fillna(0)
     return scaler_X.transform(final_numeric.values)
 
@@ -130,35 +119,26 @@ if mode == "Single Vehicle":
     c1, c2 = st.columns(2)
     with c1:
         v_make = st.text_input("Vehicle Make", "Toyota")
-        # UPDATED TO BARS (SLIDERS)
-        eng = st.slider("Engine Size (L)", 0.5, 10.0, 2.0, step=0.1)
-        cyl = st.slider("Cylinders", 2, 16, 4, step=1)
+        eng = st.number_input("Engine Size (L)", 0.5, 10.0, 2.0, step=0.1)
+        cyl = st.number_input("Cylinders", 2, 16, 4, step=1)
         fuel_t = st.selectbox("Fuel Type", ["Regular", "Premium", "Diesel", "Ethanol"])
-        # DYNAMIC YEAR SLIDER
-        v_year = st.slider("Model Year", 1995, 2026, 2024)
+        v_year = st.number_input("Model Year", 1995, 2026, 2024, step=1)
         
     with c2:
         v_class = st.selectbox("Vehicle Class", ["Mid-Size", "Compact", "SUV", "Pickup", "Truck"])
         v_trans = st.selectbox("Transmission", ["Automatic", "Manual", "CVT"])
-        # UPDATED TO BARS (SLIDERS)
-        co2 = st.slider("CO2 Emissions (g/km)", 50, 600, 200, step=1)
-        city_l = st.slider("City (L/100km)", 2.0, 30.0, 10.0, step=0.1)
-        hwy_l = st.slider("Hwy (L/100km)", 2.0, 30.0, 8.0, step=0.1)
-        comb = (city_l * 0.55) + (hwy_l * 0.45)
+        co2 = st.number_input("CO2 Emissions (g/km)", 50, 600, 200, step=1)
+        # Updated City and Hwy to - / + adjusters for consistency
+        city_l = st.number_input("City (L/100km)", 2.0, 30.0, 10.0, step=0.1)
+        hwy_l = st.number_input("Hwy (L/100km)", 2.0, 30.0, 8.0, step=0.1)
+        # Combined logic remains linked
+        comb = st.number_input("Combined L/100km", 2.0, 30.0, (city_l * 0.55) + (hwy_l * 0.45), step=0.1)
 
     if st.button("Generate AI Prediction"):
         single_row = pd.DataFrame([{
-            "Model Year": v_year,
-            "Make": v_make, 
-            "Engine Size": eng, 
-            "Cylinders": cyl, 
-            "Fuel Type": fuel_t, 
-            "Vehicle Class": v_class, 
-            "Transmission": v_trans, 
-            "CO2 Emissions": co2, 
-            "City (L/100km)": city_l, 
-            "Hwy (L/100km)": hwy_l, 
-            "Comb (L/100km)": comb
+            "Model Year": v_year, "Make": v_make, "Engine Size": eng, "Cylinders": cyl, 
+            "Fuel Type": fuel_t, "Vehicle Class": v_class, "Transmission": v_trans, 
+            "CO2 Emissions": co2, "City (L/100km)": city_l, "Hwy (L/100km)": hwy_l, "Comb (L/100km)": comb
         }])
         
         cleaned_df = nlp_translator(single_row)
@@ -166,15 +146,12 @@ if mode == "Single Vehicle":
         rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1) 
         raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
         
-        # APPLY GUARDRAILS
         display_mpg, warning = apply_guardrails(raw_mpg, eng, co2, v_year)
         
         st.divider()
         st.metric(f"{v_year} Efficiency Score", f"{display_mpg:.2f} MPG")
-        
         if v_year > 2025:
             st.info("**Future Forecast:** Prediction based on 2026 dataset trajectory.")
-            
         if warning:
             st.warning(f"⚠️ **Confidence Alert:** {warning}")
         st.success(f"Rating: {classify_efficiency(display_mpg)}")
@@ -185,17 +162,13 @@ else:
     if file:
         df_raw = pd.read_csv(file) if file.name.endswith('.csv') else pd.read_excel(file)
         df = nlp_translator(df_raw.copy())
-        
         if st.button("Process Intelligence"):
             ai_in_raw = prepare_ai_input(df, scaler_X)
             rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1)
             raw_preds = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in))).flatten()
-            
-            # Applying Method A (Ceiling) and handling dynamic years in bulk
             df["Predicted_MPG"] = [min(p, PHYSICAL_CEILING) for p in raw_preds]
             df["Annual_Fuel_Cost"] = (ANNUAL_MILES / df["Predicted_MPG"]) * FUEL_PRICE
             df["Efficiency_Rating"] = df["Predicted_MPG"].apply(classify_efficiency)
-
             st.divider()
             m1, m2 = st.columns(2)
             m1.metric("Total Fleet Spend", f"${df['Annual_Fuel_Cost'].sum():,.0f}")
