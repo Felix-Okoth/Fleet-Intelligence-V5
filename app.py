@@ -72,29 +72,22 @@ def load_resources():
 
 model, scaler_X, scaler_y = load_resources()
 
-# --- CODE 1: DATA SANITIZER ---
 def sanitize_data(df):
     """Flags rows with physically impossible values."""
     errors = []
-    
-    # Define your business rules
     rules = {
         "Engine Size": (0.1, 10.0),
         "Cylinders": (2, 16),
         "CO2 Emissions": (20, 1000),
         "Comb (L/100km)": (1.0, 50.0)
     }
-    
     df['Validation_Status'] = "Passed"
-    
     for col, (min_val, max_val) in rules.items():
         if col in df.columns:
-            # Mark rows that fall outside the range
             invalid_mask = (df[col] < min_val) | (df[col] > max_val)
             if invalid_mask.any():
                 df.loc[invalid_mask, 'Validation_Status'] = "Flagged"
                 errors.append(f"Invalid values detected in {col}")
-                
     return df, errors
 
 def prepare_ai_input(data_row, scaler_X):
@@ -109,6 +102,7 @@ def prepare_ai_input(data_row, scaler_X):
     return scaler_X.transform(final_numeric.values)
 
 def nlp_translator(df):
+    """NLP Layer: Standardizes messy column names and categorical text."""
     df.columns = [c.title().replace('_', ' ').strip() for c in df.columns]
     mapping = {
         "Type Of Fuel": "Fuel Type", "Fueltype": "Fuel Type", 
@@ -116,10 +110,21 @@ def nlp_translator(df):
         "Combined": "Comb (L/100km)", "Combined L/100Km": "Comb (L/100km)"
     }
     df = df.rename(columns=mapping)
+
+    # --- TRANSMISSION NLP LOGIC ---
+    if "Transmission" in df.columns:
+        df["Trans_Clean"] = df["Transmission"].astype(str).str.upper().str.strip()
+        def map_trans(val):
+            if val.startswith("CVT"): return 2
+            if val.startswith("M"): return 1
+            return 0  # Default to Automatic
+        df["Transmission"] = df["Trans_Clean"].apply(map_trans)
+
+    # --- FUEL TYPE NLP LOGIC ---
     if "Fuel Type" in df.columns:
-        # Fixed: using .str.strip() instead of .strip()
         df["Fuel Type"] = df["Fuel Type"].astype(str).str.title().str.strip()
         df["Fuel Type"] = df["Fuel Type"].map(lambda x: FUEL_MAP.get(x, FUEL_MAP.get(x[0] if x else "X", 1)))
+        
     return df
 
 def classify_efficiency(mpg):
@@ -150,14 +155,17 @@ if mode == "Single Vehicle":
         fuel_t = st.selectbox("Fuel Type", ["Premium", "Regular", "Diesel", "Ethanol"])
     with c2:
         v_class = st.selectbox("Vehicle Class", ["Compact", "SUV", "Mid-Size", "Pickup"])
-        v_trans = st.selectbox("Transmission", ["Automatic", "Manual"])
+        v_trans = st.selectbox("Transmission", ["Automatic", "Manual", "CVT"])
         co2 = st.number_input("CO2 Emissions (g/km)", 50, 600, 200)
         comb = st.number_input("Combined L/100km", 2.0, 30.0, 9.0)
-        st.write("") 
 
     if st.button("Generate AI Prediction"):
         f_val = FUEL_MAP.get(fuel_t, 1) 
-        features = np.array([[2026, 0, 0, 0, eng, cyl, 0, f_val, comb+1, comb-1, comb, co2]])
+        # Aligned Transmission Logic
+        t_val = 2 if v_trans == "CVT" else 1 if v_trans == "Manual" else 0
+        
+        # Build features with t_val at index 6
+        features = np.array([[2026, 0, 0, 0, eng, cyl, t_val, f_val, comb+1, comb-1, comb, co2]])
         scaled = scaler_X.transform(features)
         rnn_in = np.repeat(scaled[:, np.newaxis, :], 5, axis=1) 
         raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
@@ -171,21 +179,18 @@ if mode == "Single Vehicle":
         st.success(f"Rating: {rating}")
         st.session_state['last_single_tensor'] = features[0]
 
-# --- CODE 2: UPDATED BULK ANALYTICS BLOCK ---
 else:
     st.header("Enterprise Analytics Engine")
     file = st.file_uploader("Upload Fleet Data", type=["csv", "xlsx"])
     if file:
         df = pd.read_csv(file) if file.name.endswith('.csv') else pd.read_excel(file)
         
-        # --- NEW SANITIZATION STEP ---
-        df = nlp_translator(df) # Translate first so columns match our rules
+        df = nlp_translator(df) 
         df, error_msgs = sanitize_data(df)
         
         if error_msgs:
             st.error(f"Data Integrity Issues: {', '.join(error_msgs)}")
             st.info("Flagged rows will be processed but may result in inaccurate AI scores.")
-        # -----------------------------
 
         if st.button("Process Intelligence"):
             ai_in_raw = prepare_ai_input(df, scaler_X)
@@ -194,13 +199,7 @@ else:
             raw_preds = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in))).flatten()
             
             df["Predicted_MPG"] = raw_preds
-            
-            # Division Safety & Notification
-            zero_mask = df["Predicted_MPG"] <= 0
-            if zero_mask.any():
-                count = zero_mask.sum()
-                st.warning(f"Note: AI predicted 0 MPG for {count} vehicle(s). Adjusted to 0.1 for cost calculation safety.")
-                df["Predicted_MPG"] = df["Predicted_MPG"].replace(0, 0.1)
+            df["Predicted_MPG"] = df["Predicted_MPG"].replace(0, 0.1)
             
             df["Annual_Fuel_Cost"] = (ANNUAL_MILES / df["Predicted_MPG"]) * FUEL_PRICE
             df["Efficiency_Rating"] = df["Predicted_MPG"].apply(classify_efficiency)
