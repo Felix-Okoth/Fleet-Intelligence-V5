@@ -72,7 +72,6 @@ def deep_scan_data(df):
         "duplicates": int(df.duplicated().sum()),
         "outliers": 0
     }
-    # Define physical boundary rules for vehicles
     rules = {
         "Engine Size": (0.1, 10.0), 
         "Cylinders": (2, 16), 
@@ -97,6 +96,18 @@ def nlp_translator(df):
     if "Fuel Type" in df.columns:
         df["Fuel Type"] = df["Fuel Type"].astype(str).str.title().str.strip().map(lambda x: FUEL_MAP.get(x, 1))
     return df
+
+def prepare_ai_input(df, scaler_X):
+    """Universal function to align any DataFrame to the RNN column structure."""
+    template = np.zeros((len(df), 12))
+    input_df = pd.DataFrame(template, columns=RNN_COLS)
+    for col in df.columns:
+        if col in RNN_COLS:
+            input_df[col] = df[col]
+    # Ensure mandatory numeric fields
+    input_df["Model Year"] = 2026
+    final_numeric = input_df.apply(pd.to_numeric, errors='coerce').fillna(0)
+    return scaler_X.transform(final_numeric.values)
 
 def classify_efficiency(mpg):
     return "Excellent" if mpg > 35 else "Average" if mpg > 20 else "Poor"
@@ -128,12 +139,27 @@ if mode == "Single Vehicle":
         comb = st.number_input("Combined L/100km", 2.0, 30.0, 9.0)
 
     if st.button("Generate AI Prediction"):
-        f_val = FUEL_MAP.get(fuel_t, 1)
-        t_val = 2 if v_trans == "CVT" else 1 if v_trans == "Manual" else 0
-        features = np.array([[2026, 0, 0, 0, eng, cyl, t_val, f_val, comb+1, comb-1, comb, co2]])
-        scaled = scaler_X.transform(features)
-        rnn_in = np.repeat(scaled[:, np.newaxis, :], 5, axis=1) 
+        # UNIFIED LOGIC: Convert inputs to a DataFrame to match Bulk mode logic exactly
+        single_row = pd.DataFrame([{
+            "Make": v_make,
+            "Engine Size": eng,
+            "Cylinders": cyl,
+            "Fuel Type": fuel_t,
+            "Vehicle Class": v_class,
+            "Transmission": v_trans,
+            "CO2 Emissions": co2,
+            "Comb (L/100km)": comb,
+            "City (L/100km)": comb + 1,
+            "Hwy (L/100km)": comb - 1
+        }])
+        
+        # Pass through the exact same pipeline as Bulk
+        cleaned_df = nlp_translator(single_row)
+        ai_in_raw = prepare_ai_input(cleaned_df, scaler_X)
+        
+        rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1) 
         raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
+        
         st.metric("Efficiency Score", f"{max(0.1, raw_mpg):.2f} MPG")
         st.success(f"Rating: {classify_efficiency(raw_mpg)}")
 
@@ -159,12 +185,9 @@ else:
                     st.dataframe(df_raw.iloc[bad_rows])
 
         if st.button("Process Intelligence"):
-            template = np.zeros((len(df), 12))
-            input_df = pd.DataFrame(template, columns=RNN_COLS)
-            for col in df.columns:
-                if col in RNN_COLS: input_df[col] = df[col]
+            # Uses the same helper function as Single Mode
+            ai_in_raw = prepare_ai_input(df, scaler_X)
             
-            ai_in_raw = scaler_X.transform(input_df.apply(pd.to_numeric, errors='coerce').fillna(0).values)
             rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1)
             raw_preds = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in))).flatten()
             
