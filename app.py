@@ -163,11 +163,11 @@ def create_pdf(df):
     ]
     pdf.multi_cell(0, 6, random.choice(conclusions))
     
-    # Modern output handling for fpdf2 byte streams
-    pdf_bytes = pdf.output()
-    if isinstance(pdf_bytes, str):
-        return pdf_bytes.encode('latin-1')
-    return pdf_bytes
+    # Fix: Ensure output is explicitly cast to bytes to avoid Streamlit unsupported_error
+    pdf_out = pdf.output()
+    if isinstance(pdf_out, str):
+        return pdf_out.encode('latin-1')
+    return bytes(pdf_out)
 
 def nlp_translator(df):
     df.columns = [c.title().replace('_', ' ').strip() for c in df.columns]
@@ -259,7 +259,7 @@ else:
             st.dataframe(df_processed)
             st.plotly_chart(px.scatter(df_processed, x="Engine Size", y="Predicted_MPG", color="Efficiency_Rating", template="plotly_dark"), use_container_width=True)
             
-            # STAGE 2 FIX: Pre-generate binary data to avoid marshalling errors
+            # STABLE GENERATION: Binary data is created and cast before rendering the button
             report_data = create_pdf(df_processed)
             st.download_button(
                 label="Download Executive Strategy Report (PDF)", 
