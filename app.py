@@ -6,13 +6,11 @@ import joblib
 import os
 import datetime
 import random
-import plotly.express as px
 from fpdf import FPDF
-import io
 import sqlite3
 from cryptography.fernet import Fernet 
 
-# 1. SETUP, THEME & SECURITY INITIALIZATION
+# 1. SETUP & SECURITY INITIALIZATION
 st.set_page_config(page_title="Enterprise Fleet Intelligence", layout="wide")
 
 if not os.path.exists("secret.key"):
@@ -27,10 +25,8 @@ cipher_suite = Fernet(load_key())
 def init_db():
     conn = sqlite3.connect("fleet_intelligence.db")
     c = conn.cursor()
-    # Ledger for average tracking (background only)
     c.execute('''CREATE TABLE IF NOT EXISTS audit_ledger 
                  (id INTEGER PRIMARY KEY, timestamp TEXT, fleet_avg_mpg REAL, total_assets INTEGER)''')
-    # Stoichiometric performance vault
     c.execute('''CREATE TABLE IF NOT EXISTS performance_vault 
                  (id INTEGER PRIMARY KEY, timestamp TEXT, rnn_val REAL, physics_val REAL, variance REAL, source TEXT)''')
     conn.commit()
@@ -92,8 +88,7 @@ div.stButton > button {{ background: linear-gradient(to right, #00c6ff, #0072ff)
 </style>
 """, unsafe_allow_html=True)
 
-# 2. RESOURCES & LOGIC (STOICHIOMETRY)
-FUEL_PRICE, ANNUAL_MILES = 4.50, 15000
+# 2. RESOURCES & STOICHIOMETRIC LOGIC
 RNN_COLS = ["Model Year", "Make", "Model", "Vehicle Class", "Engine Size", "Cylinders", "Transmission", "Fuel Type", "City (L/100km)", "Hwy (L/100km)", "Comb (L/100km)", "CO2 Emissions"]
 
 @st.cache_resource
@@ -106,15 +101,15 @@ def load_resources():
 model, scaler_X, scaler_y = load_resources()
 
 def classify_efficiency(mpg):
-    if mpg > 35: return "Excellent", "rgba(0, 255, 0, 0.4)" # Transparent Green
-    elif mpg > 20: return "Average", "rgba(255, 165, 0, 0.4)" # Transparent Orange
-    else: return "Poor", "rgba(255, 0, 0, 0.4)" # Transparent Red
+    if mpg > 35: return "Excellent", "rgba(0, 255, 0, 0.4)" 
+    elif mpg > 20: return "Average", "rgba(255, 165, 0, 0.4)" 
+    else: return "Poor", "rgba(255, 0, 0, 0.4)" 
 
 def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size, cylinders, co2, source="Bulk"):
     fuel_chem = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903}
     energy_constant = fuel_chem.get(fuel_t, 8887)
     
-    # Stoichiometry Core
+    # Stoichiometry Core (The Chemical Truth)
     chemical_truth_mpg = energy_constant / (max(co2, 1) * 1.609)
     friction_loss = (engine_size * 0.12) + (cylinders * 0.06)
     max_physical_cap = (68.0 / (1 + friction_loss))
@@ -129,16 +124,6 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
         
     return round(min(final_mpg, max_physical_cap), 2)
 
-# --- THE ESG-READY PDF ENGINE ---
-def create_pdf(df):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_fill_color(25, 25, 25); pdf.rect(0, 0, 210, 40, 'F')
-    pdf.set_text_color(255, 255, 255); pdf.set_font("helvetica", 'B', 22)
-    pdf.cell(0, 20, "FLEET STRATEGY & ESG ANALYTICS", ln=True, align='C')
-    pdf_out = pdf.output()
-    return bytes(pdf_out) if not isinstance(pdf_out, str) else pdf_out.encode('latin-1')
-
 def nlp_translator(df):
     df.columns = [sanitize_input(c.title().replace('_', ' ').strip()) for c in df.columns]
     mapping = {"Type Of Fuel": "Fuel Type", "Fueltype": "Fuel Type", "Emissions": "CO2 Emissions"}
@@ -151,7 +136,7 @@ def prepare_ai_input(df, scaler_X):
         if col in RNN_COLS: input_df[col] = df[col]
     return scaler_X.transform(input_df.apply(pd.to_numeric, errors='coerce').fillna(0).values)
 
-# 3. INTERFACE (REMOVED AUDIT HISTORY FROM NAVIGATION)
+# 3. INTERFACE (AUDIT HISTORY IS FULLY PURGED FROM NAVIGATION)
 st.sidebar.title(f"Fleet Intel v6.5")
 mode = st.sidebar.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"])
 
@@ -180,12 +165,12 @@ if mode == "Single Vehicle":
         raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
         display_mpg = apply_hybrid_reality_logic(raw_mpg, v_year, v_make, v_class, fuel_t, eng, cyl, co2, source="Single")
         
-        # RESTORED UI: TRANSPARENT BAR, COMPACT WIDTH
+        # RESTORED UI: TRANSPARENT BAR, COMPACT WIDTH (MATCHING IMAGE)
         rating, color = classify_efficiency(display_mpg)
         st.write(f"**{v_year} Efficiency Score**")
         st.markdown(f"""
-            <div style="background-color: {color}; padding: 12px; border-radius: 5px; width: 60%; margin: 10px 0;">
-                <h3 style="color: white; margin: 0; font-size: 1.5rem;">{display_mpg:.2f} MPG - {rating}</h3>
+            <div style="background-color: {color}; padding: 15px; border-radius: 5px; width: 60%; margin: 10px 0; border-left: 5px solid white;">
+                <h3 style="color: white; margin: 0; font-family: sans-serif;">{display_mpg:.2f} MPG - {rating}</h3>
             </div>
         """, unsafe_allow_html=True)
 
