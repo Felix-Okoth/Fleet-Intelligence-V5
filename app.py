@@ -66,11 +66,11 @@ def load_resources():
 
 model, scaler_X, scaler_y = load_resources()
 
-# --- ACTIVITY 1: THE HYBRID INJECTION ---
+# --- ACTIVITY 1: THE HYBRID INJECTION (CALIBRATED) ---
 def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size, cylinders, co2):
     """
-    Activity 1: Merges RNN patterns with 6 Ghost Features for 100% Realism.
-    Replaces old 95% logic to enforce stoichiometric truth and material evolution.
+    Activity 1: Merges RNN patterns with 6 Ghost Features.
+    Now includes Variance Detection to automatically detect AI hallucinations.
     """
     # 1. Weight Evolution (5-Year Time Series ghost factor)
     base_year = 2000
@@ -79,23 +79,31 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
     # 2. Manufacturer & Class Mass
     make_bias = {"Toyota": 0.95, "Honda": 0.95, "Ford": 1.10, "Chevrolet": 1.10}
     m_factor = make_bias.get(make, 1.0)
-    class_mass_map = {"Compact": 1300, "Mid-Size": 1600, "SUV": 2100, "Pickup": 2400, "Truck": 3500}
     
     # 3. Stoichiometric Chemistry (The Truth Bridge)
     fuel_chem = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903}
     energy_constant = fuel_chem.get(fuel_t, 8887)
-    # Chemical Truth: MPG based on CO2 produced (1.609 for km to miles)
+    
+    # Chemical Truth: The absolute physical limit based on CO2 produced
     chemical_truth_mpg = energy_constant / (max(co2, 1) * 1.609)
 
-    # 4. Thermal Efficiency Ceiling
+    # 4. Thermal Efficiency Ceiling (The Mechanical Wall)
     friction_loss = (engine_size * 0.09) + (cylinders * 0.05)
     max_physical_cap = (63.0 / (1 + friction_loss)) * (1 / m_factor)
 
-    # 5. THE OVERLAP (The Blender)
-    # We trust Physics/Chemistry (75%) over the Brain's patterns (25%)
-    hybrid_result = (rnn_mpg * 0.25) + (chemical_truth_mpg * 0.75)
+    # --- THE "NOOSE" LOGIC (Variance Detection) ---
+    percent_variance = abs(rnn_mpg - chemical_truth_mpg) / chemical_truth_mpg
     
-    final_mpg = min(hybrid_result, max_physical_cap)
+    if percent_variance > 0.15:
+        # AI is hallucinating (variance > 15%). We anchor to Chemical Truth.
+        final_mpg = chemical_truth_mpg
+    else:
+        # AI is realistic. We blend for nuance.
+        final_mpg = (rnn_mpg * 0.20) + (chemical_truth_mpg * 0.80)
+    
+    # Final clamping to ensure we never exceed thermal limits
+    final_mpg = min(final_mpg, max_physical_cap)
+    
     return round(final_mpg, 2)
 
 def nlp_translator(df):
@@ -163,7 +171,7 @@ if mode == "Single Vehicle":
         rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1) 
         raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
         
-        # Applying Activity 1: Hybrid Reality Overlap
+        # Applying Activity 1: Calibrated Hybrid Logic
         display_mpg = apply_hybrid_reality_logic(raw_mpg, v_year, v_make, v_class, fuel_t, eng, cyl, co2)
         
         st.divider()
@@ -184,7 +192,6 @@ else:
             final_mpg = []
             for i, p in enumerate(raw_preds):
                 row = df_raw.iloc[i] 
-                # Use Hybrid Reality logic for every row in bulk
                 real_p = apply_hybrid_reality_logic(
                     p, 
                     row.get("Model Year", 2024), 
