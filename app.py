@@ -10,12 +10,11 @@ import plotly.express as px
 from fpdf import FPDF
 import io
 import sqlite3
-from cryptography.fernet import Fernet # New: Encryption
+from cryptography.fernet import Fernet 
 
 # 1. SETUP, THEME & SECURITY INITIALIZATION
 st.set_page_config(page_title="Enterprise Fleet Intelligence", layout="wide")
 
-# Generate or load a persistent encryption key for this machine
 if not os.path.exists("secret.key"):
     with open("secret.key", "wb") as key_file:
         key_file.write(Fernet.generate_key())
@@ -28,10 +27,8 @@ cipher_suite = Fernet(load_key())
 def init_db():
     conn = sqlite3.connect("fleet_intelligence.db")
     c = conn.cursor()
-    # Visible Audit Ledger
     c.execute('''CREATE TABLE IF NOT EXISTS audit_ledger 
                  (id INTEGER PRIMARY KEY, timestamp TEXT, fleet_avg_mpg REAL, total_assets INTEGER)''')
-    # Hidden Developer Vault (ENCRYPTED)
     c.execute('''CREATE TABLE IF NOT EXISTS performance_vault 
                  (id INTEGER PRIMARY KEY, timestamp TEXT, rnn_val REAL, physics_val REAL, variance REAL, source TEXT)''')
     conn.commit()
@@ -39,9 +36,7 @@ def init_db():
 
 init_db()
 
-# --- SECURITY PROTECTION (Activity 5) ---
 def sanitize_input(text):
-    """Prevents basic SQL injection and script injection"""
     forbidden = ["DROP", "DELETE", "INSERT", "UPDATE", "SELECT", "--", ";", "<script>"]
     clean_text = str(text)
     for word in forbidden:
@@ -49,7 +44,6 @@ def sanitize_input(text):
     return clean_text
 
 def log_to_ledger(avg_mpg, asset_count):
-    """Parameterized queries protect against SQL injection"""
     conn = sqlite3.connect("fleet_intelligence.db")
     c = conn.cursor()
     c.execute("INSERT INTO audit_ledger (timestamp, fleet_avg_mpg, total_assets) VALUES (?, ?, ?)",
@@ -58,7 +52,6 @@ def log_to_ledger(avg_mpg, asset_count):
     conn.close()
 
 def log_to_performance_vault(rnn, physics, var, source="Bulk"):
-    """Activity 6: Automatic Hidden Developer Logging"""
     conn = sqlite3.connect("fleet_intelligence.db")
     c = conn.cursor()
     c.execute("INSERT INTO performance_vault (timestamp, rnn_val, physics_val, variance, source) VALUES (?, ?, ?, ?, ?)",
@@ -66,7 +59,6 @@ def log_to_performance_vault(rnn, physics, var, source="Bulk"):
     conn.commit()
     conn.close()
 
-# AUTHENTICATION
 def check_password():
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
@@ -87,7 +79,7 @@ if not check_password():
     st.info("Please login via the sidebar to access AI Analytics.")
     st.stop()
 
-# DARK THEME (OG STYLE)
+# DARK THEME (RESTORED OG STYLE)
 car_bg_url = "https://images.unsplash.com/photo-1503376780353-7e6692767b70?q=80&w=1920"
 st.markdown(f"""
 <style>
@@ -112,6 +104,12 @@ def load_resources():
 
 model, scaler_X, scaler_y = load_resources()
 
+# RESTORED HEURISTIC RULE
+def classify_efficiency(mpg):
+    if mpg > 35: return "Excellent", "#00FF00" # Green
+    elif mpg > 20: return "Average", "#FFA500" # Orange
+    else: return "Poor", "#FF0000" # Red
+
 def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size, cylinders, co2, source="Bulk"):
     make_bias = {"Toyota": 0.95, "Honda": 0.95, "Ford": 1.10, "Chevrolet": 1.10}
     m_factor = make_bias.get(make, 1.0)
@@ -123,7 +121,6 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
     max_physical_cap = (68.0 / (1 + friction_loss)) * (1 / m_factor)
     percent_variance = abs(rnn_mpg - chemical_truth_mpg) / chemical_truth_mpg
     
-    # Activity 6: Silent Save to Ledger (Auto-Logging for Developer)
     log_to_performance_vault(rnn_mpg, chemical_truth_mpg, percent_variance, source)
     
     if percent_variance > 0.12:
@@ -153,8 +150,6 @@ def create_pdf(df, fig=None):
     pdf.cell(63, 15, f"AVERAGE: {dist.get('Average', 0)}", border=1, align='C', fill=True)
     pdf.cell(63, 15, f"POOR: {dist.get('Poor', 0)}", border=1, ln=True, align='C', fill=True); pdf.ln(10)
 
-    pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "Critical Asset Highlights", ln=True)
-    # ... Table logic same as OG ...
     pdf_out = pdf.output()
     return bytes(pdf_out) if not isinstance(pdf_out, str) else pdf_out.encode('latin-1')
 
@@ -194,14 +189,20 @@ if mode == "Single Vehicle":
 
     if st.button("Generate AI Prediction"):
         single_row = pd.DataFrame([{"Model Year": v_year, "Make": v_make, "Engine Size": eng, "Cylinders": cyl, "Fuel Type": fuel_t, "Vehicle Class": v_class, "Transmission": v_trans, "CO2 Emissions": co2, "City (L/100km)": city_l, "Hwy (L/100km)": hwy_l, "Comb (L/100km)": comb}])
-        # Process and auto-log
         cleaned_df = nlp_translator(single_row)
         ai_in_raw = prepare_ai_input(cleaned_df, scaler_X)
         rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1) 
         raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
         display_mpg = apply_hybrid_reality_logic(raw_mpg, v_year, v_make, v_class, fuel_t, eng, cyl, co2, source="Single")
         
-        st.metric(f"{v_year} Efficiency Score", f"{display_mpg:.2f} MPG")
+        # RESTORED UI ELEMENTS
+        rating, color = classify_efficiency(display_mpg)
+        st.markdown(f"**{v_year} Efficiency Score**")
+        st.markdown(f"""
+            <div style="background-color: {color}; padding: 10px; border-radius: 5px; text-align: center;">
+                <h2 style="color: black; margin: 0;">{display_mpg:.2f} MPG - {rating}</h2>
+            </div>
+        """, unsafe_allow_html=True)
 
 elif mode == "Bulk Fleet Analytics":
     st.header("Enterprise Analytics Engine")
@@ -222,9 +223,10 @@ elif mode == "Bulk Fleet Analytics":
                 final_mpg.append(real_p)
 
             df_processed["Predicted_MPG"] = final_mpg
-            # Auto-log summary to public ledger
+            df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(lambda x: classify_efficiency(x)[0])
+            
             log_to_ledger(df_processed["Predicted_MPG"].mean(), len(df_processed))
-            st.success("Analysis Complete. Performance metrics saved to Hidden Vault.")
+            st.success("Analysis Complete.")
             st.dataframe(df_processed)
 
 else:
