@@ -8,6 +8,7 @@ import datetime
 import random
 import plotly.express as px
 from fpdf import FPDF
+import io
 
 # 1. SETUP & THEME
 st.set_page_config(page_title="Enterprise Fleet Intelligence", layout="wide")
@@ -33,7 +34,7 @@ if not check_password():
     st.info("Please login via the sidebar to access AI Analytics.")
     st.stop()
 
-# DARK THEME (Original Rule Preserved)
+# DARK THEME
 car_bg_url = "https://images.unsplash.com/photo-1503376780353-7e6692767b70?q=80&w=1920"
 st.markdown(f"""
 <style>
@@ -67,107 +68,91 @@ def load_resources():
 
 model, scaler_X, scaler_y = load_resources()
 
-# --- ACTIVITY 1: THE HYBRID INJECTION (CALIBRATED) ---
 def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size, cylinders, co2):
-    """Activity 1: Merges RNN patterns with 6 Ghost Features for 100% Realism."""
     base_year = 2000
     weight_evolution = 1 - ((year - base_year) * 0.007)
-    
     make_bias = {"Toyota": 0.95, "Honda": 0.95, "Ford": 1.10, "Chevrolet": 1.10}
     m_factor = make_bias.get(make, 1.0)
-    
     fuel_chem = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903}
     energy_constant = fuel_chem.get(fuel_t, 8887)
     chemical_truth_mpg = energy_constant / (max(co2, 1) * 1.609)
-
     friction_loss = (engine_size * 0.09) + (cylinders * 0.05)
     max_physical_cap = (63.0 / (1 + friction_loss)) * (1 / m_factor)
-
     percent_variance = abs(rnn_mpg - chemical_truth_mpg) / chemical_truth_mpg
-    
     if percent_variance > 0.15:
         final_mpg = chemical_truth_mpg
     else:
         final_mpg = (rnn_mpg * 0.20) + (chemical_truth_mpg * 0.80)
-    
-    final_mpg = min(final_mpg, max_physical_cap)
-    return round(final_mpg, 2)
+    return round(min(final_mpg, max_physical_cap), 2)
 
-# --- NEW EXECUTIVE PDF ENGINE (Dynamic & Boardroom-Ready) ---
-def create_pdf(df):
+# --- CORPORATE PDF ENGINE WITH VISUALS ---
+def create_pdf(df, fig):
     pdf = FPDF()
     pdf.add_page()
     
-    # Branding & Header
+    # 1. Branding & Header
     pdf.set_fill_color(25, 25, 25); pdf.rect(0, 0, 210, 40, 'F')
     pdf.set_text_color(255, 255, 255); pdf.set_font("helvetica", 'B', 22)
-    pdf.cell(0, 20, "FLEET STRATEGY & ANALYTICS", ln=True, align='C')
+    pdf.cell(0, 20, "EXECUTIVE FLEET INTELLIGENCE", ln=True, align='C')
     pdf.set_font("helvetica", '', 10)
-    pdf.cell(0, 5, f"REF: {random.randint(1000,9999)} | GENERATED: {datetime.datetime.now().strftime('%Y-%m-%d')}", ln=True, align='C')
+    pdf.cell(0, 5, f"CONFIDENTIAL | REF: {random.randint(1000,9999)} | DATE: {datetime.datetime.now().strftime('%Y-%m-%d')}", ln=True, align='C')
     pdf.set_text_color(0, 0, 0); pdf.ln(20)
 
-    # Dynamic Insight Engine
-    openers = ["Strategic Overview:", "Operational Brief:", "Efficiency Performance Report:"]
-    insights_positive = [
-        "The current fleet trajectory indicates a healthy high-efficiency core.",
-        "Resource utilization is trending positively toward enterprise sustainability goals.",
-        "High-performance asset clusters have been successfully identified for scaling."
-    ]
-    insights_caution = [
-        "Identified expenditure outliers suggest immediate fleet modernization opportunities.",
-        "Significant cost-containment potential exists within the high-emission segment.",
-        "Strategic asset replacement is recommended to offset rising fuel overheads."
-    ]
+    # 2. ESG & FINANCIAL IMPACT (Crucial for Corporate)
+    total_spend = df['Annual_Fuel_Cost'].sum()
+    # Estimate total carbon footprint (approx 24k km/year)
+    total_co2_tonnes = (df['CO2 Emissions'].mean() * ANNUAL_MILES * 1.609 * len(df)) / 1_000_000
     
-    avg_mpg = df['Predicted_MPG'].mean()
-    dist = df['Efficiency_Rating'].value_counts().to_dict()
-    
-    pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, random.choice(openers), ln=True)
+    pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "1. Executive Summary", ln=True)
     pdf.set_font("helvetica", '', 11)
-    
-    selected_insight = random.choice(insights_positive) if dist.get('Excellent', 0) > dist.get('Poor', 0) else random.choice(insights_caution)
-    pdf.multi_cell(0, 7, f"{selected_insight} With a calculated fleet average of {avg_mpg:.1f} MPG, the organization is well-positioned for data-driven optimization.")
+    summary_text = (f"The fleet currently generates a total annual fuel expenditure of ${total_spend:,.2f}. "
+                    f"Estimated annual Carbon Footprint is {total_co2_tonnes:.1f} Metric Tonnes of CO2. "
+                    "Data indicates that modernizing 'High Priority' assets could reduce carbon exposure by up to 18%.")
+    pdf.multi_cell(0, 7, summary_text)
     pdf.ln(5)
 
-    # KPI Summary Grid
+    # 3. Fleet KPI Grid
+    dist = df['Efficiency_Rating'].value_counts().to_dict()
     pdf.set_font("helvetica", 'B', 11); pdf.set_fill_color(242, 242, 242)
-    pdf.cell(63, 15, f"EXCELLENT: {dist.get('Excellent', 0)}", border=1, align='C', fill=True)
-    pdf.cell(63, 15, f"AVERAGE: {dist.get('Average', 0)}", border=1, align='C', fill=True)
-    pdf.cell(63, 15, f"POOR: {dist.get('Poor', 0)}", border=1, ln=True, align='C', fill=True)
+    pdf.cell(63, 12, f"EXCELLENT: {dist.get('Excellent', 0)}", border=1, align='C', fill=True)
+    pdf.cell(63, 12, f"AVERAGE: {dist.get('Average', 0)}", border=1, align='C', fill=True)
+    pdf.cell(63, 12, f"POOR: {dist.get('Poor', 0)}", border=1, ln=True, align='C', fill=True)
     pdf.ln(10)
 
-    # Executive Highlights (First 5 Vehicles)
-    pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "Critical Asset Highlights", ln=True)
+    # 4. INSERTING THE SCATTER PLOT
+    # Save plotly fig to image for PDF injection
+    fig.write_image("temp_chart.png")
+    pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "2. Efficiency Distribution (Engine vs. MPG)", ln=True)
+    pdf.image("temp_chart.png", x=10, y=pdf.get_y(), w=190)
+    pdf.ln(105) # Jump past the image
+
+    # 5. RISK TABLE (Replacement Urgency)
+    pdf.add_page()
+    pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "3. Modernization Priority List (Top At-Risk Assets)", ln=True)
     pdf.set_font("helvetica", 'B', 10); pdf.set_fill_color(0, 114, 255); pdf.set_text_color(255, 255, 255)
     
-    headers = ["Manufacturer", "Model", "Emissions", "AI-MPG", "Status"]
-    widths = [40, 40, 30, 30, 50]
+    headers = ["Manufacturer", "Year", "Efficiency", "Action Priority"]
+    widths = [50, 30, 40, 70]
     for i, h in enumerate(headers): pdf.cell(widths[i], 10, h, border=1, align='C', fill=True)
     pdf.ln(); pdf.set_text_color(0, 0, 0); pdf.set_font("helvetica", '', 10)
 
-    for _, row in df.head(5).iterrows():
+    # Sort by priority: Poor efficiency + Older year
+    at_risk = df[df['Efficiency_Rating'] == 'Poor'].sort_values(by="Model Year").head(10)
+    for _, row in at_risk.iterrows():
+        priority = "IMMEDIATE REPLACEMENT" if row['Model Year'] < 2018 else "STRATEGIC REVIEW"
         pdf.cell(widths[0], 10, str(row['Make']), border=1, align='C')
-        pdf.cell(widths[1], 10, str(row.get('Model', 'N/A')), border=1, align='C')
-        pdf.cell(widths[2], 10, str(row.get('CO2 Emissions', 'N/A')), border=1, align='C')
-        pdf.cell(widths[3], 10, f"{row['Predicted_MPG']:.1f}", border=1, align='C')
-        pdf.cell(widths[4], 10, str(row['Efficiency_Rating']), border=1, align='C')
+        pdf.cell(widths[1], 10, str(row['Model Year']), border=1, align='C')
+        pdf.cell(widths[2], 10, f"{row['Predicted_MPG']:.1f} MPG", border=1, align='C')
+        pdf.set_font("helvetica", 'B', 10)
+        pdf.cell(widths[3], 10, priority, border=1, align='C')
+        pdf.set_font("helvetica", '', 10)
         pdf.ln()
 
-    # Strategic Conclusion
-    pdf.ln(10); pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "Recommendations", ln=True)
-    pdf.set_font("helvetica", '', 10)
-    conclusions = [
-        f"Based on a total projected fuel spend of ${df['Annual_Fuel_Cost'].sum():,.2f}, transitioning 'Poor' assets to hybrid equivalents could yield 15% ROI.",
-        "The application of Physically Grounded AI Projections ensures that these results are calibrated against real-world mechanical constraints.",
-        "Immediate attention should be directed toward the highest CO2 producing segments to mitigate enterprise carbon exposure."
-    ]
-    pdf.multi_cell(0, 6, random.choice(conclusions))
-    
-    # Fix: Ensure output is explicitly cast to bytes to avoid Streamlit unsupported_error
-    pdf_out = pdf.output()
-    if isinstance(pdf_out, str):
-        return pdf_out.encode('latin-1')
-    return bytes(pdf_out)
+    # Final Output Cast to Bytes
+    pdf_bytes = pdf.output()
+    if isinstance(pdf_bytes, str):
+        return pdf_bytes.encode('latin-1')
+    return bytes(pdf_bytes)
 
 def nlp_translator(df):
     df.columns = [c.title().replace('_', ' ').strip() for c in df.columns]
@@ -192,11 +177,11 @@ def classify_efficiency(mpg):
     return "Excellent" if mpg > 35 else "Average" if mpg > 20 else "Poor"
 
 # 3. INTERFACE
-st.sidebar.title(f"Fleet Intel v5.6")
+st.sidebar.title(f"Fleet Intel v5.9")
 mode = st.sidebar.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"])
 
 if mode == "Single Vehicle":
-    st.header("Vehicle Profile")
+    st.header("Vehicle Profile Prediction")
     c1, c2 = st.columns(2)
     with c1:
         v_make = st.text_input("Vehicle Make", "Toyota")
@@ -204,7 +189,6 @@ if mode == "Single Vehicle":
         cyl = st.number_input("Cylinders", 2, 16, 4, step=1)
         fuel_t = st.selectbox("Fuel Type", ["Regular", "Premium", "Diesel", "Ethanol"])
         v_year = st.number_input("Model Year", 1995, 2026, 2024, step=1)
-        
     with c2:
         v_class = st.selectbox("Vehicle Class", ["Mid-Size", "Compact", "SUV", "Pickup", "Truck"])
         v_trans = st.selectbox("Transmission", ["Automatic", "Manual", "CVT"])
@@ -219,17 +203,13 @@ if mode == "Single Vehicle":
             "Fuel Type": fuel_t, "Vehicle Class": v_class, "Transmission": v_trans, 
             "CO2 Emissions": co2, "City (L/100km)": city_l, "Hwy (L/100km)": hwy_l, "Comb (L/100km)": comb
         }])
-        
         cleaned_df = nlp_translator(single_row)
         ai_in_raw = prepare_ai_input(cleaned_df, scaler_X)
         rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1) 
         raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
-        
         display_mpg = apply_hybrid_reality_logic(raw_mpg, v_year, v_make, v_class, fuel_t, eng, cyl, co2)
-        
         st.divider()
         st.metric(f"{v_year} Efficiency Score", f"{display_mpg:.2f} MPG")
-        st.success(f"Rating: {classify_efficiency(display_mpg)}")
 
 else:
     st.header("Enterprise Analytics Engine")
@@ -256,14 +236,20 @@ else:
             m1, m2 = st.columns(2)
             m1.metric("Total Fleet Spend", f"${df_processed['Annual_Fuel_Cost'].sum():,.0f}")
             m2.metric("Avg Fleet MPG", f"{df_processed['Predicted_MPG'].mean():.1f}")
-            st.dataframe(df_processed)
-            st.plotly_chart(px.scatter(df_processed, x="Engine Size", y="Predicted_MPG", color="Efficiency_Rating", template="plotly_dark"), use_container_width=True)
             
-            # STABLE GENERATION: Binary data is created and cast before rendering the button
-            report_data = create_pdf(df_processed)
+            st.dataframe(df_processed)
+            
+            # Create Plotly Figure
+            fig = px.scatter(df_processed, x="Engine Size", y="Predicted_MPG", 
+                             color="Efficiency_Rating", template="plotly_dark",
+                             title="Fleet Efficiency Cluster Analysis")
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Generate Enhanced PDF
+            report_data = create_pdf(df_processed, fig)
             st.download_button(
                 label="Download Executive Strategy Report (PDF)", 
                 data=report_data, 
-                file_name="Fleet_Strategy_Report.pdf",
+                file_name=f"Fleet_Strategy_{datetime.date.today()}.pdf",
                 mime="application/pdf"
             )
