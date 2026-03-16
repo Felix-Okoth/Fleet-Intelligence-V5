@@ -66,41 +66,37 @@ def load_resources():
 
 model, scaler_X, scaler_y = load_resources()
 
-def apply_95_realism_logic(raw_mpg, engine_size, cylinders, year, fuel_type, v_class):
+# --- ACTIVITY 1: THE HYBRID INJECTION ---
+def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size, cylinders, co2):
     """
-    Advanced Logic: Incorporates Energy Density (Fuel) and Aerodynamic Drag (Class).
-    This ensures 95% realism by aligning the RNN output with physical constraints.
+    Activity 1: Merges RNN patterns with 6 Ghost Features for 100% Realism.
+    Replaces old 95% logic to enforce stoichiometric truth and material evolution.
     """
-    # 1. Tech Progression
-    tech_factor = 1 + (max(0, year - 2000) * 0.008)
+    # 1. Weight Evolution (5-Year Time Series ghost factor)
+    base_year = 2000
+    weight_evolution = 1 - ((year - base_year) * 0.007)
     
-    # 2. Fuel Energy Density
-    fuel_multiplier = 1.0
-    if fuel_type == "Diesel":
-        fuel_multiplier = 1.15  # Diesel has higher energy per gallon
-    elif fuel_type == "Ethanol":
-        fuel_multiplier = 0.72  # E85 has lower energy density
-        
-    # 3. Class-Based Aerodynamic/Weight Penalty
-    class_penalty = 1.0
-    drag_map = {"SUV": 0.88, "Pickup": 0.82, "Truck": 0.75, "Mid-Size": 0.95, "Compact": 1.0}
-    class_penalty = drag_map.get(v_class, 0.90)
+    # 2. Manufacturer & Class Mass
+    make_bias = {"Toyota": 0.95, "Honda": 0.95, "Ford": 1.10, "Chevrolet": 1.10}
+    m_factor = make_bias.get(make, 1.0)
+    class_mass_map = {"Compact": 1300, "Mid-Size": 1600, "SUV": 2100, "Pickup": 2400, "Truck": 3500}
     
-    # 4. Engine Size/Cylinder Friction
-    friction_loss = 1.0 - (engine_size * 0.04) - (cylinders * 0.015)
-    
-    # Dynamic Ceiling Calculation
-    logical_limit = (56.0 * tech_factor * fuel_multiplier * class_penalty * friction_loss)
-    logical_limit = max(min(logical_limit, 54.0), 10.0) 
+    # 3. Stoichiometric Chemistry (The Truth Bridge)
+    fuel_chem = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903}
+    energy_constant = fuel_chem.get(fuel_t, 8887)
+    # Chemical Truth: MPG based on CO2 produced (1.609 for km to miles)
+    chemical_truth_mpg = energy_constant / (max(co2, 1) * 1.609)
 
-    if raw_mpg > logical_limit:
-        display_mpg = logical_limit * 0.98
-        warning = f"Prediction optimized for {v_class} class and {fuel_type} fuel energy."
-    else:
-        display_mpg = raw_mpg
-        warning = None
-        
-    return display_mpg, warning
+    # 4. Thermal Efficiency Ceiling
+    friction_loss = (engine_size * 0.09) + (cylinders * 0.05)
+    max_physical_cap = (63.0 / (1 + friction_loss)) * (1 / m_factor)
+
+    # 5. THE OVERLAP (The Blender)
+    # We trust Physics/Chemistry (75%) over the Brain's patterns (25%)
+    hybrid_result = (rnn_mpg * 0.25) + (chemical_truth_mpg * 0.75)
+    
+    final_mpg = min(hybrid_result, max_physical_cap)
+    return round(final_mpg, 2)
 
 def nlp_translator(df):
     df.columns = [c.title().replace('_', ' ').strip() for c in df.columns]
@@ -167,13 +163,11 @@ if mode == "Single Vehicle":
         rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1) 
         raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
         
-        # Applying Dynamic Realism including Fuel and Class
-        display_mpg, warning = apply_95_realism_logic(raw_mpg, eng, cyl, v_year, fuel_t, v_class)
+        # Applying Activity 1: Hybrid Reality Overlap
+        display_mpg = apply_hybrid_reality_logic(raw_mpg, v_year, v_make, v_class, fuel_t, eng, cyl, co2)
         
         st.divider()
         st.metric(f"{v_year} Efficiency Score", f"{display_mpg:.2f} MPG")
-        if warning:
-            st.info(f"⚙️ {warning}")
         st.success(f"Rating: {classify_efficiency(display_mpg)}")
 
 else:
@@ -181,32 +175,35 @@ else:
     file = st.file_uploader("Upload Fleet Data", type=["csv", "xlsx"])
     if file:
         df_raw = pd.read_csv(file) if file.name.endswith('.csv') else pd.read_excel(file)
-        df = nlp_translator(df_raw.copy())
+        df_processed = nlp_translator(df_raw.copy())
         if st.button("Process Intelligence"):
-            ai_in_raw = prepare_ai_input(df, scaler_X)
+            ai_in_raw = prepare_ai_input(df_processed, scaler_X)
             rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1)
             raw_preds = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in))).flatten()
             
             final_mpg = []
             for i, p in enumerate(raw_preds):
-                row = df_raw.iloc[i] # Use raw for text labels
-                real_p, _ = apply_95_realism_logic(
+                row = df_raw.iloc[i] 
+                # Use Hybrid Reality logic for every row in bulk
+                real_p = apply_hybrid_reality_logic(
                     p, 
-                    row.get("Engine Size", 2.0), 
-                    row.get("Cylinders", 4), 
                     row.get("Model Year", 2024), 
+                    row.get("Make", "Unknown"), 
+                    row.get("Vehicle Class", "Mid-Size"), 
                     row.get("Fuel Type", "Regular"), 
-                    row.get("Vehicle Class", "Mid-Size")
+                    row.get("Engine Size", 2.0), 
+                    row.get("Cylinders", 4),
+                    row.get("CO2 Emissions", 200)
                 )
                 final_mpg.append(real_p)
 
-            df["Predicted_MPG"] = final_mpg
-            df["Annual_Fuel_Cost"] = (ANNUAL_MILES / df["Predicted_MPG"]) * FUEL_PRICE
-            df["Efficiency_Rating"] = df["Predicted_MPG"].apply(classify_efficiency)
+            df_processed["Predicted_MPG"] = final_mpg
+            df_processed["Annual_Fuel_Cost"] = (ANNUAL_MILES / df_processed["Predicted_MPG"]) * FUEL_PRICE
+            df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(classify_efficiency)
             st.divider()
             m1, m2 = st.columns(2)
-            m1.metric("Total Fleet Spend", f"${df['Annual_Fuel_Cost'].sum():,.0f}")
-            m2.metric("Avg Fleet MPG", f"{df['Predicted_MPG'].mean():.1f}")
-            st.dataframe(df)
-            st.plotly_chart(px.scatter(df, x="Engine Size", y="Predicted_MPG", color="Efficiency_Rating", template="plotly_dark"), use_container_width=True)
-            st.download_button("Download Executive PDF", create_pdf(df), "fleet_report.pdf")
+            m1.metric("Total Fleet Spend", f"${df_processed['Annual_Fuel_Cost'].sum():,.0f}")
+            m2.metric("Avg Fleet MPG", f"{df_processed['Predicted_MPG'].mean():.1f}")
+            st.dataframe(df_processed)
+            st.plotly_chart(px.scatter(df_processed, x="Engine Size", y="Predicted_MPG", color="Efficiency_Rating", template="plotly_dark"), use_container_width=True)
+            st.download_button("Download Executive PDF", create_pdf(df_processed), "fleet_report.pdf")
