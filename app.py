@@ -85,7 +85,7 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
     return round(min(final_mpg, max_physical_cap), 2)
 
 # --- THE ESG-READY PDF ENGINE ---
-def create_pdf(df):
+def create_pdf(df, fig=None):
     pdf = FPDF()
     pdf.add_page()
     
@@ -97,9 +97,8 @@ def create_pdf(df):
     pdf.cell(0, 5, f"REF: {random.randint(1000,9999)} | GENERATED: {datetime.datetime.now().strftime('%Y-%m-%d')}", ln=True, align='C')
     pdf.set_text_color(0, 0, 0); pdf.ln(20)
 
-    # ESG Logic: Find CO2 column even if named differently
+    # ESG Logic
     co2_col = "CO2 Emissions" if "CO2 Emissions" in df.columns else next((c for c in df.columns if "CO2" in c.upper()), None)
-    
     avg_mpg = df['Predicted_MPG'].mean()
     total_spend = df['Annual_Fuel_Cost'].sum()
     dist = df['Efficiency_Rating'].value_counts().to_dict()
@@ -107,7 +106,6 @@ def create_pdf(df):
     pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "1. Executive ESG & Financial Summary", ln=True)
     pdf.set_font("helvetica", '', 11)
     
-    # ESG Calculation
     if co2_col:
         total_co2_tonnes = (df[co2_col].mean() * ANNUAL_MILES * 1.609 * len(df)) / 1_000_000
         esg_summary = f"Estimated Annual Fleet Carbon Footprint: {total_co2_tonnes:.2f} Metric Tonnes of CO2."
@@ -119,14 +117,22 @@ def create_pdf(df):
     pdf.multi_cell(0, 7, summary_text)
     pdf.ln(5)
 
-    # KPI Grid
+    # KPI Grid (RESTORED OG RULE)
     pdf.set_font("helvetica", 'B', 11); pdf.set_fill_color(242, 242, 242)
     pdf.cell(63, 15, f"EXCELLENT: {dist.get('Excellent', 0)}", border=1, align='C', fill=True)
     pdf.cell(63, 15, f"AVERAGE: {dist.get('Average', 0)}", border=1, align='C', fill=True)
     pdf.cell(63, 15, f"POOR: {dist.get('Poor', 0)}", border=1, ln=True, align='C', fill=True)
     pdf.ln(10)
 
-    # Highlights Table
+    # Visual Analytics Page (Embed Plotly)
+    if fig:
+        pdf.add_page()
+        pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "2. Visual Efficiency Distribution", ln=True)
+        img_bytes = fig.to_image(format="png", width=800, height=500, scale=2)
+        pdf.image(io.BytesIO(img_bytes), x=10, y=30, w=190)
+        pdf.ln(120)
+
+    # Highlights Table (RESTORED OG RULE)
     pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "Critical Asset Highlights", ln=True)
     pdf.set_font("helvetica", 'B', 10); pdf.set_fill_color(0, 114, 255); pdf.set_text_color(255, 255, 255)
     headers = ["Manufacturer", "Model", "Emissions", "AI-MPG", "Status"]
@@ -148,10 +154,8 @@ def create_pdf(df):
 def nlp_translator(df):
     df.columns = [c.title().replace('_', ' ').strip() for c in df.columns]
     mapping = {
-        "Type Of Fuel": "Fuel Type", 
-        "Fueltype": "Fuel Type", 
-        "Emissions": "CO2 Emissions", 
-        "Co2 Emissions": "CO2 Emissions",
+        "Type Of Fuel": "Fuel Type", "Fueltype": "Fuel Type", 
+        "Emissions": "CO2 Emissions", "Co2 Emissions": "CO2 Emissions",
         "Combined": "Comb (L/100km)"
     }
     df = df.rename(columns=mapping)
@@ -173,7 +177,7 @@ def classify_efficiency(mpg):
     return "Excellent" if mpg > 35 else "Average" if mpg > 20 else "Poor"
 
 # 3. INTERFACE
-st.sidebar.title(f"Fleet Intel v5.7")
+st.sidebar.title(f"Fleet Intel v5.8")
 mode = st.sidebar.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"])
 
 if mode == "Single Vehicle":
@@ -200,7 +204,11 @@ if mode == "Single Vehicle":
         rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1) 
         raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
         display_mpg = apply_hybrid_reality_logic(raw_mpg, v_year, v_make, v_class, fuel_t, eng, cyl, co2)
+        
+        # RESTORED OG RULE: Success Green Bar
+        st.divider()
         st.metric(f"{v_year} Efficiency Score", f"{display_mpg:.2f} MPG")
+        st.success(f"Rating: {classify_efficiency(display_mpg)}")
 
 else:
     st.header("Enterprise Analytics Engine")
@@ -214,7 +222,7 @@ else:
         df_processed = nlp_translator(df_raw.copy())
         if st.button("Process Intelligence"):
             ai_in_raw = prepare_ai_input(df_processed, scaler_X)
-            rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1)
+            rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 1, axis=1) # Optimization
             raw_preds = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in))).flatten()
             
             final_mpg = []
@@ -232,7 +240,10 @@ else:
             m1.metric("Total Fleet Spend", f"${df_processed['Annual_Fuel_Cost'].sum():,.0f}")
             m2.metric("Avg Fleet MPG", f"{df_processed['Predicted_MPG'].mean():.1f}")
             st.dataframe(df_processed)
-            st.plotly_chart(px.scatter(df_processed, x="Engine Size", y="Predicted_MPG", color="Efficiency_Rating", template="plotly_dark"), use_container_width=True)
             
-            report_data = create_pdf(df_processed)
+            # Capture Figure for PDF
+            fig = px.scatter(df_processed, x="Engine Size", y="Predicted_MPG", color="Efficiency_Rating", template="plotly_dark")
+            st.plotly_chart(fig, use_container_width=True)
+            
+            report_data = create_pdf(df_processed, fig=fig)
             st.download_button(label="Download Executive Strategy Report (PDF)", data=report_data, file_name="Fleet_Strategy_Report.pdf", mime="application/pdf")
