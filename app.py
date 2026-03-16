@@ -77,7 +77,6 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
     chemical_truth_mpg = energy_constant / (max(co2, 1) * 1.609)
     friction_loss = (engine_size * 0.09) + (cylinders * 0.05)
     max_physical_cap = (63.0 / (1 + friction_loss)) * (1 / m_factor)
-    
     percent_variance = abs(rnn_mpg - chemical_truth_mpg) / chemical_truth_mpg
     if percent_variance > 0.15:
         final_mpg = chemical_truth_mpg
@@ -85,81 +84,82 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
         final_mpg = (rnn_mpg * 0.20) + (chemical_truth_mpg * 0.80)
     return round(min(final_mpg, max_physical_cap), 2)
 
-# --- REPAIRED EXECUTIVE PDF ENGINE ---
-def create_pdf(df, fig):
+# --- THE ESG-READY PDF ENGINE ---
+def create_pdf(df):
     pdf = FPDF()
     pdf.add_page()
     
-    # 1. Header
+    # Header
     pdf.set_fill_color(25, 25, 25); pdf.rect(0, 0, 210, 40, 'F')
     pdf.set_text_color(255, 255, 255); pdf.set_font("helvetica", 'B', 22)
-    pdf.cell(0, 20, "EXECUTIVE FLEET INTELLIGENCE", ln=True, align='C')
+    pdf.cell(0, 20, "FLEET STRATEGY & ESG ANALYTICS", ln=True, align='C')
     pdf.set_font("helvetica", '', 10)
-    pdf.cell(0, 5, f"CONFIDENTIAL | REF: {random.randint(1000,9999)} | DATE: {datetime.datetime.now().strftime('%Y-%m-%d')}", ln=True, align='C')
+    pdf.cell(0, 5, f"REF: {random.randint(1000,9999)} | GENERATED: {datetime.datetime.now().strftime('%Y-%m-%d')}", ln=True, align='C')
     pdf.set_text_color(0, 0, 0); pdf.ln(20)
 
-    # 2. Robust Column Finder (Fixes the KeyError)
-    co2_col = "CO2 Emissions" if "CO2 Emissions" in df.columns else [c for c in df.columns if "CO2" in c.upper()][0]
+    # ESG Logic: Find CO2 column even if named differently
+    co2_col = "CO2 Emissions" if "CO2 Emissions" in df.columns else next((c for c in df.columns if "CO2" in c.upper()), None)
     
+    avg_mpg = df['Predicted_MPG'].mean()
     total_spend = df['Annual_Fuel_Cost'].sum()
-    total_co2_tonnes = (df[co2_col].mean() * ANNUAL_MILES * 1.609 * len(df)) / 1_000_000
+    dist = df['Efficiency_Rating'].value_counts().to_dict()
     
-    pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "1. Executive Summary & ESG Impact", ln=True)
+    pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "1. Executive ESG & Financial Summary", ln=True)
     pdf.set_font("helvetica", '', 11)
-    summary_text = (f"Annual Fleet Expenditure: ${total_spend:,.2f}. "
-                    f"Carbon Exposure: {total_co2_tonnes:.1f} Metric Tonnes CO2/yr. "
-                    "Data highlights strategic modernization opportunities in low-efficiency clusters.")
+    
+    # ESG Calculation
+    if co2_col:
+        total_co2_tonnes = (df[co2_col].mean() * ANNUAL_MILES * 1.609 * len(df)) / 1_000_000
+        esg_summary = f"Estimated Annual Fleet Carbon Footprint: {total_co2_tonnes:.2f} Metric Tonnes of CO2."
+    else:
+        esg_summary = "Carbon footprint data is pending additional emission metrics."
+
+    summary_text = (f"Total Annual Fuel Expenditure: ${total_spend:,.2f}. "
+                    f"Fleet Efficiency Average: {avg_mpg:.1f} MPG. {esg_summary}")
     pdf.multi_cell(0, 7, summary_text)
     pdf.ln(5)
 
-    # 3. KPI Grid
-    dist = df['Efficiency_Rating'].value_counts().to_dict()
+    # KPI Grid
     pdf.set_font("helvetica", 'B', 11); pdf.set_fill_color(242, 242, 242)
-    pdf.cell(63, 12, f"EXCELLENT: {dist.get('Excellent', 0)}", border=1, align='C', fill=True)
-    pdf.cell(63, 12, f"AVERAGE: {dist.get('Average', 0)}", border=1, align='C', fill=True)
-    pdf.cell(63, 12, f"POOR: {dist.get('Poor', 0)}", border=1, ln=True, align='C', fill=True)
+    pdf.cell(63, 15, f"EXCELLENT: {dist.get('Excellent', 0)}", border=1, align='C', fill=True)
+    pdf.cell(63, 15, f"AVERAGE: {dist.get('Average', 0)}", border=1, align='C', fill=True)
+    pdf.cell(63, 15, f"POOR: {dist.get('Poor', 0)}", border=1, ln=True, align='C', fill=True)
     pdf.ln(10)
 
-    # 4. Image Injection
-    fig.write_image("temp_chart.png")
-    pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "2. Efficiency Distribution Analysis", ln=True)
-    pdf.image("temp_chart.png", x=10, y=pdf.get_y(), w=190)
-    pdf.ln(105)
-
-    # 5. Risk Table
-    pdf.add_page()
-    pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "3. Replacement Priority List", ln=True)
+    # Highlights Table
+    pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "Critical Asset Highlights", ln=True)
     pdf.set_font("helvetica", 'B', 10); pdf.set_fill_color(0, 114, 255); pdf.set_text_color(255, 255, 255)
-    
-    headers = ["Manufacturer", "Year", "Efficiency", "Action Status"]
-    widths = [50, 30, 40, 70]
+    headers = ["Manufacturer", "Model", "Emissions", "AI-MPG", "Status"]
+    widths = [40, 40, 30, 30, 50]
     for i, h in enumerate(headers): pdf.cell(widths[i], 10, h, border=1, align='C', fill=True)
     pdf.ln(); pdf.set_text_color(0, 0, 0); pdf.set_font("helvetica", '', 10)
 
-    at_risk = df[df['Efficiency_Rating'] == 'Poor'].sort_values(by="Model Year").head(15)
-    for _, row in at_risk.iterrows():
-        status = "CRITICAL REPLACEMENT" if row['Model Year'] < 2018 else "OPERATIONAL REVIEW"
+    for _, row in df.head(10).iterrows():
         pdf.cell(widths[0], 10, str(row['Make']), border=1, align='C')
-        pdf.cell(widths[1], 10, str(row['Model Year']), border=1, align='C')
-        pdf.cell(widths[2], 10, f"{row['Predicted_MPG']:.1f} MPG", border=1, align='C')
-        pdf.cell(widths[3], 10, status, border=1, align='C')
+        pdf.cell(widths[1], 10, str(row.get('Model', 'N/A')), border=1, align='C')
+        pdf.cell(widths[2], 10, str(row.get(co2_col, 'N/A')), border=1, align='C')
+        pdf.cell(widths[3], 10, f"{row['Predicted_MPG']:.1f}", border=1, align='C')
+        pdf.cell(widths[4], 10, str(row['Efficiency_Rating']), border=1, align='C')
         pdf.ln()
 
-    return bytes(pdf.output())
+    pdf_out = pdf.output()
+    return bytes(pdf_out) if not isinstance(pdf_out, str) else pdf_out.encode('latin-1')
 
 def nlp_translator(df):
-    # Aggressive cleaning of column headers
-    df.columns = [c.title().strip().replace('  ', ' ') for c in df.columns]
+    df.columns = [c.title().replace('_', ' ').strip() for c in df.columns]
     mapping = {
-        "Type Of Fuel": "Fuel Type", "Fueltype": "Fuel Type", 
-        "Emissions": "CO2 Emissions", "Co2 Emissions": "CO2 Emissions",
-        "Combined": "Comb (L/100km)", "Comb (L/100Km)": "Comb (L/100km)"
+        "Type Of Fuel": "Fuel Type", 
+        "Fueltype": "Fuel Type", 
+        "Emissions": "CO2 Emissions", 
+        "Co2 Emissions": "CO2 Emissions",
+        "Combined": "Comb (L/100km)"
     }
     df = df.rename(columns=mapping)
     if "Transmission" in df.columns:
-        df["Transmission"] = df["Transmission"].astype(str).str.upper().apply(lambda x: 2 if "CVT" in x else 1 if "M" in x else 0)
+        df["Trans_Clean"] = df["Transmission"].astype(str).str.upper().str.strip()
+        df["Transmission"] = df["Trans_Clean"].apply(lambda x: 2 if x.startswith("CVT") else 1 if x.startswith("M") else 0)
     if "Fuel Type" in df.columns:
-        df["Fuel Type"] = df["Fuel Type"].astype(str).str.title().map(lambda x: FUEL_MAP.get(x, 1))
+        df["Fuel Type"] = df["Fuel Type"].astype(str).str.title().str.strip().map(lambda x: FUEL_MAP.get(x, 1))
     return df
 
 def prepare_ai_input(df, scaler_X):
@@ -173,58 +173,66 @@ def classify_efficiency(mpg):
     return "Excellent" if mpg > 35 else "Average" if mpg > 20 else "Poor"
 
 # 3. INTERFACE
-st.sidebar.title("Fleet Intel v6.0")
+st.sidebar.title(f"Fleet Intel v5.7")
 mode = st.sidebar.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"])
 
 if mode == "Single Vehicle":
-    st.header("Vehicle Profile Prediction")
+    st.header("Vehicle Profile")
     c1, c2 = st.columns(2)
     with c1:
-        v_make = st.text_input("Make", "Toyota")
-        eng = st.number_input("Engine (L)", 0.5, 10.0, 2.0)
-        cyl = st.number_input("Cylinders", 2, 16, 4)
-        fuel_t = st.selectbox("Fuel", ["Regular", "Premium", "Diesel", "Ethanol"])
-        v_year = st.number_input("Year", 1995, 2026, 2024)
+        v_make = st.text_input("Vehicle Make", "Toyota")
+        eng = st.number_input("Engine Size (L)", 0.5, 10.0, 2.0, step=0.1)
+        cyl = st.number_input("Cylinders", 2, 16, 4, step=1)
+        fuel_t = st.selectbox("Fuel Type", ["Regular", "Premium", "Diesel", "Ethanol"])
+        v_year = st.number_input("Model Year", 1995, 2026, 2024, step=1)
     with c2:
-        v_class = st.selectbox("Class", ["Mid-Size", "Compact", "SUV", "Pickup", "Truck"])
-        v_trans = st.selectbox("Trans", ["Automatic", "Manual", "CVT"])
-        co2 = st.number_input("CO2 (g/km)", 50, 600, 200)
-        city_l = st.number_input("City L/100km", 2.0, 30.0, 10.0)
-        hwy_l = st.number_input("Hwy L/100km", 2.0, 30.0, 8.0)
+        v_class = st.selectbox("Vehicle Class", ["Mid-Size", "Compact", "SUV", "Pickup", "Truck"])
+        v_trans = st.selectbox("Transmission", ["Automatic", "Manual", "CVT"])
+        co2 = st.number_input("CO2 Emissions (g/km)", 50, 600, 200, step=1)
+        city_l = st.number_input("City (L/100km)", 2.0, 30.0, 10.0, step=0.1)
+        hwy_l = st.number_input("Hwy (L/100km)", 2.0, 30.0, 8.0, step=0.1)
         comb = (city_l * 0.55) + (hwy_l * 0.45)
 
-    if st.button("Predict"):
-        row = pd.DataFrame([{"Model Year": v_year, "Make": v_make, "Engine Size": eng, "Cylinders": cyl, "Fuel Type": fuel_t, "Vehicle Class": v_class, "Transmission": v_trans, "CO2 Emissions": co2, "City (L/100km)": city_l, "Hwy (L/100km)": hwy_l, "Comb (L/100km)": comb}])
-        cleaned = nlp_translator(row)
-        rnn_in = np.repeat(prepare_ai_input(cleaned, scaler_X)[:, np.newaxis, :], 5, axis=1)
+    if st.button("Generate AI Prediction"):
+        single_row = pd.DataFrame([{"Model Year": v_year, "Make": v_make, "Engine Size": eng, "Cylinders": cyl, "Fuel Type": fuel_t, "Vehicle Class": v_class, "Transmission": v_trans, "CO2 Emissions": co2, "City (L/100km)": city_l, "Hwy (L/100km)": hwy_l, "Comb (L/100km)": comb}])
+        cleaned_df = nlp_translator(single_row)
+        ai_in_raw = prepare_ai_input(cleaned_df, scaler_X)
+        rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1) 
         raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
-        final = apply_hybrid_reality_logic(raw_mpg, v_year, v_make, v_class, fuel_t, eng, cyl, co2)
-        st.metric("Efficiency Score", f"{final:.2f} MPG")
+        display_mpg = apply_hybrid_reality_logic(raw_mpg, v_year, v_make, v_class, fuel_t, eng, cyl, co2)
+        st.metric(f"{v_year} Efficiency Score", f"{display_mpg:.2f} MPG")
 
 else:
-    st.header("Bulk Analytics Engine")
-    file = st.file_uploader("Upload CSV", type=["csv"])
+    st.header("Enterprise Analytics Engine")
+    file = st.file_uploader("Upload Fleet Data", type=["csv", "xlsx"])
     if file:
-        df_raw = pd.read_csv(file)
+        if file.name.lower().endswith('.csv'):
+            df_raw = pd.read_csv(file)
+        else:
+            df_raw = pd.read_excel(file, engine='openpyxl')
+            
         df_processed = nlp_translator(df_raw.copy())
-        if st.button("Analyze Fleet"):
-            rnn_in = np.repeat(prepare_ai_input(df_processed, scaler_X)[:, np.newaxis, :], 5, axis=1)
+        if st.button("Process Intelligence"):
+            ai_in_raw = prepare_ai_input(df_processed, scaler_X)
+            rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1)
             raw_preds = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in))).flatten()
             
             final_mpg = []
             for i, p in enumerate(raw_preds):
-                r = df_raw.iloc[i]
-                final_mpg.append(apply_hybrid_reality_logic(p, r.get("Model Year", 2024), r.get("Make", "Unknown"), r.get("Vehicle Class", "Mid-Size"), r.get("Fuel Type", "Regular"), r.get("Engine Size", 2.0), r.get("Cylinders", 4), r.get("CO2 Emissions", 200)))
+                row = df_raw.iloc[i] 
+                real_p = apply_hybrid_reality_logic(p, row.get("Model Year", 2024), row.get("Make", "Unknown"), row.get("Vehicle Class", "Mid-Size"), row.get("Fuel Type", "Regular"), row.get("Engine Size", 2.0), row.get("Cylinders", 4), row.get("CO2 Emissions", 200))
+                final_mpg.append(real_p)
 
             df_processed["Predicted_MPG"] = final_mpg
             df_processed["Annual_Fuel_Cost"] = (ANNUAL_MILES / df_processed["Predicted_MPG"]) * FUEL_PRICE
             df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(classify_efficiency)
             
-            st.metric("Total Fleet Spend", f"${df_processed['Annual_Fuel_Cost'].sum():,.0f}")
+            st.divider()
+            m1, m2 = st.columns(2)
+            m1.metric("Total Fleet Spend", f"${df_processed['Annual_Fuel_Cost'].sum():,.0f}")
+            m2.metric("Avg Fleet MPG", f"{df_processed['Predicted_MPG'].mean():.1f}")
             st.dataframe(df_processed)
+            st.plotly_chart(px.scatter(df_processed, x="Engine Size", y="Predicted_MPG", color="Efficiency_Rating", template="plotly_dark"), use_container_width=True)
             
-            fig = px.scatter(df_processed, x="Engine Size", y="Predicted_MPG", color="Efficiency_Rating", template="plotly_dark", title="Fleet Performance Clustering")
-            st.plotly_chart(fig, use_container_width=True)
-            
-            report_data = create_pdf(df_processed, fig)
-            st.download_button("Download Strategy Report", data=report_data, file_name=f"Strategy_Report_{datetime.date.today()}.pdf", mime="application/pdf")
+            report_data = create_pdf(df_processed)
+            st.download_button(label="Download Executive Strategy Report (PDF)", data=report_data, file_name="Fleet_Strategy_Report.pdf", mime="application/pdf")
