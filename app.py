@@ -258,4 +258,4 @@ else:
             st.plotly_chart(fig, use_container_width=True)
             
             report_data = create_pdf(df_processed, fig=fig)
-            st.download_button(label="Download Executive Strategy Report (PDF)", data=report_data, file_name="Fleet_Strategy_Report.pdf", mime="application/pdf")
+            st.download_button(label="Download (PDF) Report", data=report_data, file_name="Fleet_Strategy_Report.pdf", mime="application/pdf")
