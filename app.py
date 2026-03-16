@@ -109,11 +109,15 @@ def classify_efficiency(mpg):
 def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size, cylinders, co2, source="Bulk"):
     fuel_chem = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903}
     energy_constant = fuel_chem.get(fuel_t, 8887)
+    
+    # Stoichiometry Core (The Physics Constraint)
     chemical_truth_mpg = energy_constant / (max(co2, 1) * 1.609)
     friction_loss = (engine_size * 0.12) + (cylinders * 0.06)
     max_physical_cap = (68.0 / (1 + friction_loss))
+    
     percent_variance = abs(rnn_mpg - chemical_truth_mpg) / chemical_truth_mpg
     log_to_performance_vault(rnn_mpg, chemical_truth_mpg, percent_variance, source)
+    
     if percent_variance > 0.12:
         final_mpg = chemical_truth_mpg
     else:
@@ -124,26 +128,32 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
 def create_pdf(df):
     pdf = FPDF()
     pdf.add_page()
+    # Header Branding
     pdf.set_fill_color(25, 25, 25); pdf.rect(0, 0, 210, 40, 'F')
     pdf.set_text_color(255, 255, 255); pdf.set_font("helvetica", 'B', 22)
     pdf.cell(0, 20, "FLEET STRATEGY & ESG ANALYTICS", ln=True, align='C')
     pdf.set_font("helvetica", '', 10); pdf.cell(0, 5, f"REF: {random.randint(1000,9999)} | GENERATED: {datetime.datetime.now().strftime('%Y-%m-%d')}", ln=True, align='C')
+    
+    # Body
     pdf.set_text_color(0, 0, 0); pdf.ln(15)
     pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "Strategic Overview:", ln=True)
-    pdf.set_font("helvetica", '', 11); avg_mpg = df['Predicted_MPG'].mean()
-    pdf.multi_cell(0, 7, f"The fleet trajectory indicates a healthy high-efficiency core with an average of {avg_mpg:.1f} MPG."); pdf.ln(10)
+    pdf.set_font("helvetica", '', 11)
+    avg_mpg = df['Predicted_MPG'].mean()
+    pdf.multi_cell(0, 7, f"Fleet trajectory shows an average efficiency of {avg_mpg:.1f} MPG. This report serves as an official ESG audit for model year sustainability tracking."); pdf.ln(10)
     
-    # Table Header
-    pdf.set_font("helvetica", 'B', 10); pdf.set_fill_color(200, 200, 200)
-    pdf.cell(40, 10, "Make", 1, 0, 'C', True); pdf.cell(30, 10, "Year", 1, 0, 'C', True)
-    pdf.cell(40, 10, "MPG", 1, 0, 'C', True); pdf.cell(40, 10, "Rating", 1, 1, 'C', True)
+    # Audit Table
+    pdf.set_font("helvetica", 'B', 10); pdf.set_fill_color(230, 230, 230)
+    pdf.cell(50, 10, "Make", 1, 0, 'C', True)
+    pdf.cell(40, 10, "Year", 1, 0, 'C', True)
+    pdf.cell(50, 10, "Predicted MPG", 1, 0, 'C', True)
+    pdf.cell(50, 10, "Rating", 1, 1, 'C', True)
     
     pdf.set_font("helvetica", '', 10)
-    for i, row in df.head(15).iterrows():
-        pdf.cell(40, 10, str(row.get('Make', 'N/A')), 1)
-        pdf.cell(30, 10, str(row.get('Model Year', 'N/A')), 1)
-        pdf.cell(40, 10, f"{row['Predicted_MPG']:.2f}", 1)
-        pdf.cell(40, 10, str(row.get('Efficiency_Rating', 'N/A')), 1, 1)
+    for _, row in df.head(20).iterrows():
+        pdf.cell(50, 10, str(row.get('Make', 'N/A')), 1)
+        pdf.cell(40, 10, str(row.get('Model Year', 'N/A')), 1)
+        pdf.cell(50, 10, f"{row['Predicted_MPG']:.2f}", 1)
+        pdf.cell(50, 10, str(row.get('Efficiency_Rating', 'N/A')), 1, 1)
         
     return pdf.output(dest='S').encode('latin-1')
 
@@ -186,39 +196,6 @@ if mode == "Single Vehicle":
         ai_in_raw = prepare_ai_input(cleaned_df, scaler_X)
         rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1) 
         raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
+        
         display_mpg = apply_hybrid_reality_logic(raw_mpg, v_year, v_make, v_class, fuel_t, eng, cyl, co2, source="Single")
-        
-        rating, color = classify_efficiency(display_mpg)
-        st.write(f"**{v_year} Efficiency Score**")
-        st.markdown(f"""
-            <div style="background-color: {color}; padding: 15px; border-radius: 5px; width: 60%; margin: 10px 0; border-left: 5px solid white;">
-                <h3 style="color: white; margin: 0; font-family: sans-serif;">{display_mpg:.2f} MPG - {rating}</h3>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        # RESTORED DOWNLOAD
-        cleaned_df["Predicted_MPG"] = display_mpg
-        cleaned_df["Efficiency_Rating"] = rating
-        pdf_data = create_pdf(cleaned_df)
-        st.download_button("Download ESG Report", data=pdf_data, file_name=f"ESG_Report_{v_make}.pdf", mime="application/pdf")
-
-elif mode == "Bulk Fleet Analytics":
-    st.header("Enterprise Analytics Engine")
-    file = st.file_uploader("Upload Fleet Data", type=["csv", "xlsx"])
-    if file:
-        df_raw = pd.read_csv(file) if file.name.lower().endswith('.csv') else pd.read_excel(file)
-        if st.button("Process Intelligence"):
-            df_processed = nlp_translator(df_raw.copy())
-            ai_in_raw = prepare_ai_input(df_processed, scaler_X)
-            rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1)
-            raw_preds = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in))).flatten()
-            
-            final_mpg = [apply_hybrid_reality_logic(p, 2024, "Unknown", "Mid-Size", "Regular", 2.0, 4, 200) for p in raw_preds]
-            df_processed["Predicted_MPG"] = final_mpg
-            df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(lambda x: classify_efficiency(x)[0])
-            
-            log_to_ledger(df_processed["Predicted_MPG"].mean(), len(df_processed))
-            st.dataframe(df_processed)
-            
-            pdf_data = create_pdf(df_processed)
-            st.download_button("Download Bulk ESG Audit", data=pdf_data, file_name="Bulk_ESG_Audit.pdf", mime="application/pdf")
+        rating,
