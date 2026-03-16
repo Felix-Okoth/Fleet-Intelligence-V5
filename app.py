@@ -27,8 +27,10 @@ cipher_suite = Fernet(load_key())
 def init_db():
     conn = sqlite3.connect("fleet_intelligence.db")
     c = conn.cursor()
+    # Ledger for average tracking (background only)
     c.execute('''CREATE TABLE IF NOT EXISTS audit_ledger 
                  (id INTEGER PRIMARY KEY, timestamp TEXT, fleet_avg_mpg REAL, total_assets INTEGER)''')
+    # Stoichiometric performance vault
     c.execute('''CREATE TABLE IF NOT EXISTS performance_vault 
                  (id INTEGER PRIMARY KEY, timestamp TEXT, rnn_val REAL, physics_val REAL, variance REAL, source TEXT)''')
     conn.commit()
@@ -90,10 +92,9 @@ div.stButton > button {{ background: linear-gradient(to right, #00c6ff, #0072ff)
 </style>
 """, unsafe_allow_html=True)
 
-# 2. RESOURCES & LOGIC
+# 2. RESOURCES & LOGIC (STOICHIOMETRY)
 FUEL_PRICE, ANNUAL_MILES = 4.50, 15000
 RNN_COLS = ["Model Year", "Make", "Model", "Vehicle Class", "Engine Size", "Cylinders", "Transmission", "Fuel Type", "City (L/100km)", "Hwy (L/100km)", "Comb (L/100km)", "CO2 Emissions"]
-FUEL_MAP = {"Premium": 0, "Z": 0, "Regular": 1, "X": 1, "Diesel": 2, "D": 2, "Ethanol": 3, "E": 3, "Natural Gas": 4, "N": 4}
 
 @st.cache_resource
 def load_resources():
@@ -104,21 +105,19 @@ def load_resources():
 
 model, scaler_X, scaler_y = load_resources()
 
-# RESTORED HEURISTIC RULE
 def classify_efficiency(mpg):
-    if mpg > 35: return "Excellent", "#00FF00" # Green
-    elif mpg > 20: return "Average", "#FFA500" # Orange
-    else: return "Poor", "#FF0000" # Red
+    if mpg > 35: return "Excellent", "rgba(0, 255, 0, 0.4)" # Transparent Green
+    elif mpg > 20: return "Average", "rgba(255, 165, 0, 0.4)" # Transparent Orange
+    else: return "Poor", "rgba(255, 0, 0, 0.4)" # Transparent Red
 
 def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size, cylinders, co2, source="Bulk"):
-    make_bias = {"Toyota": 0.95, "Honda": 0.95, "Ford": 1.10, "Chevrolet": 1.10}
-    m_factor = make_bias.get(make, 1.0)
     fuel_chem = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903}
     energy_constant = fuel_chem.get(fuel_t, 8887)
     
+    # Stoichiometry Core
     chemical_truth_mpg = energy_constant / (max(co2, 1) * 1.609)
     friction_loss = (engine_size * 0.12) + (cylinders * 0.06)
-    max_physical_cap = (68.0 / (1 + friction_loss)) * (1 / m_factor)
+    max_physical_cap = (68.0 / (1 + friction_loss))
     percent_variance = abs(rnn_mpg - chemical_truth_mpg) / chemical_truth_mpg
     
     log_to_performance_vault(rnn_mpg, chemical_truth_mpg, percent_variance, source)
@@ -130,34 +129,20 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
         
     return round(min(final_mpg, max_physical_cap), 2)
 
-# --- THE ESG-READY PDF ENGINE (OG) ---
-def create_pdf(df, fig=None):
+# --- THE ESG-READY PDF ENGINE ---
+def create_pdf(df):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_fill_color(25, 25, 25); pdf.rect(0, 0, 210, 40, 'F')
     pdf.set_text_color(255, 255, 255); pdf.set_font("helvetica", 'B', 22)
     pdf.cell(0, 20, "FLEET STRATEGY & ESG ANALYTICS", ln=True, align='C')
-    pdf.set_font("helvetica", '', 10); pdf.cell(0, 5, f"REF: {random.randint(1000,9999)} | GENERATED: {datetime.datetime.now().strftime('%Y-%m-%d')}", ln=True, align='C')
-    pdf.set_text_color(0, 0, 0); pdf.ln(15)
-    
-    pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "Strategic Overview:", ln=True)
-    pdf.set_font("helvetica", '', 11); avg_mpg = df['Predicted_MPG'].mean()
-    pdf.multi_cell(0, 7, f"The fleet trajectory indicates a healthy high-efficiency core with an average of {avg_mpg:.1f} MPG."); pdf.ln(5)
-
-    dist = df['Efficiency_Rating'].value_counts().to_dict()
-    pdf.set_font("helvetica", 'B', 11); pdf.set_fill_color(242, 242, 242)
-    pdf.cell(63, 15, f"EXCELLENT: {dist.get('Excellent', 0)}", border=1, align='C', fill=True)
-    pdf.cell(63, 15, f"AVERAGE: {dist.get('Average', 0)}", border=1, align='C', fill=True)
-    pdf.cell(63, 15, f"POOR: {dist.get('Poor', 0)}", border=1, ln=True, align='C', fill=True); pdf.ln(10)
-
     pdf_out = pdf.output()
     return bytes(pdf_out) if not isinstance(pdf_out, str) else pdf_out.encode('latin-1')
 
 def nlp_translator(df):
     df.columns = [sanitize_input(c.title().replace('_', ' ').strip()) for c in df.columns]
-    mapping = {"Type Of Fuel": "Fuel Type", "Fueltype": "Fuel Type", "Emissions": "CO2 Emissions", "Co2 Emissions": "CO2 Emissions", "Combined": "Comb (L/100km)"}
-    df = df.rename(columns=mapping)
-    return df
+    mapping = {"Type Of Fuel": "Fuel Type", "Fueltype": "Fuel Type", "Emissions": "CO2 Emissions"}
+    return df.rename(columns=mapping)
 
 def prepare_ai_input(df, scaler_X):
     template = np.zeros((len(df), 12))
@@ -166,9 +151,9 @@ def prepare_ai_input(df, scaler_X):
         if col in RNN_COLS: input_df[col] = df[col]
     return scaler_X.transform(input_df.apply(pd.to_numeric, errors='coerce').fillna(0).values)
 
-# 3. INTERFACE
+# 3. INTERFACE (REMOVED AUDIT HISTORY FROM NAVIGATION)
 st.sidebar.title(f"Fleet Intel v6.5")
-mode = st.sidebar.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics", "Audit History"])
+mode = st.sidebar.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"])
 
 if mode == "Single Vehicle":
     st.header("Vehicle Profile")
@@ -195,12 +180,12 @@ if mode == "Single Vehicle":
         raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
         display_mpg = apply_hybrid_reality_logic(raw_mpg, v_year, v_make, v_class, fuel_t, eng, cyl, co2, source="Single")
         
-        # RESTORED UI ELEMENTS
+        # RESTORED UI: TRANSPARENT BAR, COMPACT WIDTH
         rating, color = classify_efficiency(display_mpg)
-        st.markdown(f"**{v_year} Efficiency Score**")
+        st.write(f"**{v_year} Efficiency Score**")
         st.markdown(f"""
-            <div style="background-color: {color}; padding: 10px; border-radius: 5px; text-align: center;">
-                <h2 style="color: black; margin: 0;">{display_mpg:.2f} MPG - {rating}</h2>
+            <div style="background-color: {color}; padding: 12px; border-radius: 5px; width: 60%; margin: 10px 0;">
+                <h3 style="color: white; margin: 0; font-size: 1.5rem;">{display_mpg:.2f} MPG - {rating}</h3>
             </div>
         """, unsafe_allow_html=True)
 
@@ -209,28 +194,12 @@ elif mode == "Bulk Fleet Analytics":
     file = st.file_uploader("Upload Fleet Data", type=["csv", "xlsx"])
     if file:
         df_raw = pd.read_csv(file) if file.name.lower().endswith('.csv') else pd.read_excel(file)
-        df_processed = nlp_translator(df_raw.copy())
-        
         if st.button("Process Intelligence"):
-            ai_in_raw = prepare_ai_input(df_processed, scaler_X)
+            ai_in_raw = prepare_ai_input(nlp_translator(df_raw.copy()), scaler_X)
             rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1)
             raw_preds = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in))).flatten()
             
-            final_mpg = []
-            for i, p in enumerate(raw_preds):
-                row = df_raw.iloc[i] 
-                real_p = apply_hybrid_reality_logic(p, row.get("Model Year", 2024), row.get("Make", "Unknown"), row.get("Vehicle Class", "Mid-Size"), row.get("Fuel Type", "Regular"), row.get("Engine Size", 2.0), row.get("Cylinders", 4), row.get("CO2 Emissions", 200), source="Bulk")
-                final_mpg.append(real_p)
-
-            df_processed["Predicted_MPG"] = final_mpg
-            df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(lambda x: classify_efficiency(x)[0])
-            
-            log_to_ledger(df_processed["Predicted_MPG"].mean(), len(df_processed))
-            st.success("Analysis Complete.")
-            st.dataframe(df_processed)
-
-else:
-    st.header("Corporate Audit History")
-    conn = sqlite3.connect("fleet_intelligence.db")
-    st.table(pd.read_sql_query("SELECT timestamp, fleet_avg_mpg, total_assets FROM audit_ledger ORDER BY timestamp DESC", conn))
-    conn.close()
+            final_mpg = [apply_hybrid_reality_logic(p, 2024, "Unknown", "Mid-Size", "Regular", 2.0, 4, 200) for p in raw_preds]
+            df_raw["Predicted_MPG"] = final_mpg
+            log_to_ledger(df_raw["Predicted_MPG"].mean(), len(df_raw))
+            st.dataframe(df_raw)
