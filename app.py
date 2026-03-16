@@ -68,20 +68,32 @@ def load_resources():
 
 model, scaler_X, scaler_y = load_resources()
 
+# --- ACTIVITY 1: GHOST LOGIC INJECTION ---
 def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size, cylinders, co2):
-    base_year = 2000
+    # Physics & Make Bias
     make_bias = {"Toyota": 0.95, "Honda": 0.95, "Ford": 1.10, "Chevrolet": 1.10}
     m_factor = make_bias.get(make, 1.0)
+    
+    # Fuel Chemical Truth (Energy Density)
     fuel_chem = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903}
     energy_constant = fuel_chem.get(fuel_t, 8887)
+    
+    # Calculate Chemical MPG Limit
     chemical_truth_mpg = energy_constant / (max(co2, 1) * 1.609)
-    friction_loss = (engine_size * 0.09) + (cylinders * 0.05)
-    max_physical_cap = (63.0 / (1 + friction_loss)) * (1 / m_factor)
+    
+    # Mechanical Friction Ghost (Engine Displacement Penalty)
+    friction_loss = (engine_size * 0.12) + (cylinders * 0.06)
+    max_physical_cap = (68.0 / (1 + friction_loss)) * (1 / m_factor)
+    
+    # Hybrid Injection Decision (12% Threshold)
     percent_variance = abs(rnn_mpg - chemical_truth_mpg) / chemical_truth_mpg
-    if percent_variance > 0.15:
+    
+    if percent_variance > 0.12:
         final_mpg = chemical_truth_mpg
     else:
-        final_mpg = (rnn_mpg * 0.20) + (chemical_truth_mpg * 0.80)
+        # Weighted blend: 85% Physics, 15% AI
+        final_mpg = (rnn_mpg * 0.15) + (chemical_truth_mpg * 0.85)
+        
     return round(min(final_mpg, max_physical_cap), 2)
 
 # --- THE ESG-READY PDF ENGINE ---
@@ -109,7 +121,6 @@ def create_pdf(df, fig=None):
 
     # ESG Logic
     co2_col = "CO2 Emissions" if "CO2 Emissions" in df.columns else next((c for c in df.columns if "CO2" in c.upper()), "Emissions")
-    total_spend = df['Annual_Fuel_Cost'].sum()
     dist = df['Efficiency_Rating'].value_counts().to_dict()
     
     # KPI Grid
