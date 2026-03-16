@@ -163,11 +163,11 @@ def create_pdf(df):
     ]
     pdf.multi_cell(0, 6, random.choice(conclusions))
     
-    # FIX: Robustly handle bytes vs string output from fpdf2
-    pdf_output = pdf.output()
-    if isinstance(pdf_output, str):
-        return pdf_output.encode('latin-1')
-    return pdf_output
+    # Modern output handling for fpdf2 byte streams
+    pdf_bytes = pdf.output()
+    if isinstance(pdf_bytes, str):
+        return pdf_bytes.encode('latin-1')
+    return pdf_bytes
 
 def nlp_translator(df):
     df.columns = [c.title().replace('_', ' ').strip() for c in df.columns]
@@ -258,4 +258,12 @@ else:
             m2.metric("Avg Fleet MPG", f"{df_processed['Predicted_MPG'].mean():.1f}")
             st.dataframe(df_processed)
             st.plotly_chart(px.scatter(df_processed, x="Engine Size", y="Predicted_MPG", color="Efficiency_Rating", template="plotly_dark"), use_container_width=True)
-            st.download_button("Download Executive Strategy Report (PDF)", create_pdf(df_processed), "Fleet_Strategy_Report.pdf")
+            
+            # STAGE 2 FIX: Pre-generate binary data to avoid marshalling errors
+            report_data = create_pdf(df_processed)
+            st.download_button(
+                label="Download Executive Strategy Report (PDF)", 
+                data=report_data, 
+                file_name="Fleet_Strategy_Report.pdf",
+                mime="application/pdf"
+            )
