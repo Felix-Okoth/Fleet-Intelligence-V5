@@ -125,9 +125,8 @@ def create_pdf(df):
     pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, random.choice(openers), ln=True)
     pdf.set_font("helvetica", '', 11)
     
-    # Choose insight based on fleet health
     selected_insight = random.choice(insights_positive) if dist.get('Excellent', 0) > dist.get('Poor', 0) else random.choice(insights_caution)
-    pdf.multi_cell(0, 7, f"{selected_insight} With a calculated fleet average of {avg_mpg:.1f} $MPG$, the organization is well-positioned for data-driven optimization.")
+    pdf.multi_cell(0, 7, f"{selected_insight} With a calculated fleet average of {avg_mpg:.1f} MPG, the organization is well-positioned for data-driven optimization.")
     pdf.ln(5)
 
     # KPI Summary Grid
@@ -164,7 +163,11 @@ def create_pdf(df):
     ]
     pdf.multi_cell(0, 6, random.choice(conclusions))
     
-    return pdf.output(dest='S').encode('latin-1')
+    # FIX: Robustly handle bytes vs string output from fpdf2
+    pdf_output = pdf.output()
+    if isinstance(pdf_output, str):
+        return pdf_output.encode('latin-1')
+    return pdf_output
 
 def nlp_translator(df):
     df.columns = [c.title().replace('_', ' ').strip() for c in df.columns]
