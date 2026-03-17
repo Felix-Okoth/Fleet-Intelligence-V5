@@ -69,23 +69,29 @@ init_db()
 # ==========================================
 def render_fleet_visuals(df):
     st.subheader("Fleet Performance Analytics")
-    v1, v2 = st.columns(2)
-    with v1:
-        fig_frontier = px.scatter(
-            df, x="Engine Size", y="Predicted_MPG", 
-            color="Efficiency_Rating", size="CO2 Emissions",
-            hover_name="Model", title="Efficiency Frontier: Displacement vs. MPG",
-            color_discrete_map={"Excellent": "#00ffcc", "Average": "#f1c40f", "Poor": "#ff4b4b"},
-            template="plotly_dark"
-        )
-        st.plotly_chart(fig_frontier, use_container_width=True)
-    with v2:
-        fig_cost = px.bar(
-            df, x="Make", y="Annual_Fuel_Cost", 
-            color="Efficiency_Rating", title="Annual Fuel Exposure by OEM",
-            barmode="group", template="plotly_dark"
-        )
-        st.plotly_chart(fig_cost, use_container_width=True)
+    
+    # Chart 1: Efficiency Frontier
+    fig_frontier = px.scatter(
+        df, x="Engine Size", y="Predicted_MPG", 
+        color="Efficiency_Rating", size="CO2 Emissions",
+        hover_name="Model", title="Efficiency Frontier: Displacement vs. MPG",
+        color_discrete_map={"Excellent": "#00ffcc", "Average": "#f1c40f", "Poor": "#ff4b4b"},
+        template="plotly_dark"
+    )
+    st.plotly_chart(fig_frontier, use_container_width=True)
+
+    # Vertical Spacing and Divider
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.divider()
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Chart 2: Fuel Exposure
+    fig_cost = px.bar(
+        df, x="Make", y="Annual_Fuel_Cost", 
+        color="Efficiency_Rating", title="Annual Fuel Exposure by OEM",
+        barmode="group", template="plotly_dark"
+    )
+    st.plotly_chart(fig_cost, use_container_width=True)
 
 def generate_strategic_insights(df):
     insights = []
