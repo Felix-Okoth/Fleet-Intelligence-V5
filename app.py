@@ -9,41 +9,9 @@ import random
 import plotly.express as px
 from fpdf import FPDF
 import io
-import sqlite3  # New: Database Engine
 
 # 1. SETUP & THEME
 st.set_page_config(page_title="Enterprise Fleet Intelligence", layout="wide")
-
-# --- DATABASE INITIALIZATION ---
-def init_db():
-    conn = sqlite3.connect("fleet_intelligence.db")
-    c = conn.cursor()
-    # Client Ledger (Visible Data)
-    c.execute('''CREATE TABLE IF NOT EXISTS audit_ledger 
-                 (id INTEGER PRIMARY KEY, timestamp TEXT, fleet_avg_mpg REAL, total_assets INTEGER)''')
-    # Hidden Vault (Internal Metrics)
-    c.execute('''CREATE TABLE IF NOT EXISTS performance_vault 
-                 (id INTEGER PRIMARY KEY, timestamp TEXT, rnn_val REAL, physics_val REAL, variance REAL)''')
-    conn.commit()
-    conn.close()
-
-init_db()
-
-def log_to_ledger(avg_mpg, asset_count):
-    conn = sqlite3.connect("fleet_intelligence.db")
-    c = conn.cursor()
-    c.execute("INSERT INTO audit_ledger (timestamp, fleet_avg_mpg, total_assets) VALUES (?, ?, ?)",
-              (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), avg_mpg, asset_count))
-    conn.commit()
-    conn.close()
-
-def log_to_performance_vault(rnn, physics, var):
-    conn = sqlite3.connect("fleet_intelligence.db")
-    c = conn.cursor()
-    c.execute("INSERT INTO performance_vault (timestamp, rnn_val, physics_val, variance) VALUES (?, ?, ?, ?)",
-              (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), rnn, physics, var))
-    conn.commit()
-    conn.close()
 
 # AUTHENTICATION
 def check_password():
@@ -100,25 +68,30 @@ def load_resources():
 
 model, scaler_X, scaler_y = load_resources()
 
-# --- GHOST LOGIC (Refined Activity 1) ---
+# --- ACTIVITY 1: GHOST LOGIC INJECTION ---
 def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size, cylinders, co2):
+    # Physics & Make Bias
     make_bias = {"Toyota": 0.95, "Honda": 0.95, "Ford": 1.10, "Chevrolet": 1.10}
     m_factor = make_bias.get(make, 1.0)
+    
+    # Fuel Chemical Truth (Energy Density)
     fuel_chem = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903}
     energy_constant = fuel_chem.get(fuel_t, 8887)
     
+    # Calculate Chemical MPG Limit
     chemical_truth_mpg = energy_constant / (max(co2, 1) * 1.609)
+    
+    # Mechanical Friction Ghost (Engine Displacement Penalty)
     friction_loss = (engine_size * 0.12) + (cylinders * 0.06)
     max_physical_cap = (68.0 / (1 + friction_loss)) * (1 / m_factor)
     
+    # Hybrid Injection Decision (12% Threshold)
     percent_variance = abs(rnn_mpg - chemical_truth_mpg) / chemical_truth_mpg
-    
-    # Activity 2: Silent Performance Logging
-    log_to_performance_vault(rnn_mpg, chemical_truth_mpg, percent_variance)
     
     if percent_variance > 0.12:
         final_mpg = chemical_truth_mpg
     else:
+        # Weighted blend: 85% Physics, 15% AI
         final_mpg = (rnn_mpg * 0.15) + (chemical_truth_mpg * 0.85)
         
     return round(min(final_mpg, max_physical_cap), 2)
@@ -128,6 +101,7 @@ def create_pdf(df, fig=None):
     pdf = FPDF()
     pdf.add_page()
     
+    # Header
     pdf.set_fill_color(25, 25, 25); pdf.rect(0, 0, 210, 40, 'F')
     pdf.set_text_color(255, 255, 255); pdf.set_font("helvetica", 'B', 22)
     pdf.cell(0, 20, "FLEET STRATEGY & ESG ANALYTICS", ln=True, align='C')
@@ -135,6 +109,7 @@ def create_pdf(df, fig=None):
     pdf.cell(0, 5, f"REF: {random.randint(1000,9999)} | GENERATED: {datetime.datetime.now().strftime('%Y-%m-%d')}", ln=True, align='C')
     pdf.set_text_color(0, 0, 0); pdf.ln(15)
 
+    # 1. Strategic Overview
     pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "Strategic Overview:", ln=True)
     pdf.set_font("helvetica", '', 11)
     avg_mpg = df['Predicted_MPG'].mean()
@@ -144,15 +119,18 @@ def create_pdf(df, fig=None):
     pdf.multi_cell(0, 7, overview_text)
     pdf.ln(5)
 
+    # ESG Logic
     co2_col = "CO2 Emissions" if "CO2 Emissions" in df.columns else next((c for c in df.columns if "CO2" in c.upper()), "Emissions")
     dist = df['Efficiency_Rating'].value_counts().to_dict()
     
+    # KPI Grid
     pdf.set_font("helvetica", 'B', 11); pdf.set_fill_color(242, 242, 242)
     pdf.cell(63, 15, f"EXCELLENT: {dist.get('Excellent', 0)}", border=1, align='C', fill=True)
     pdf.cell(63, 15, f"AVERAGE: {dist.get('Average', 0)}", border=1, align='C', fill=True)
     pdf.cell(63, 15, f"POOR: {dist.get('Poor', 0)}", border=1, ln=True, align='C', fill=True)
     pdf.ln(10)
 
+    # 2. Critical Asset Highlights
     pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "Critical Asset Highlights", ln=True)
     pdf.set_font("helvetica", 'B', 10); pdf.set_fill_color(0, 114, 255); pdf.set_text_color(255, 255, 255)
     headers = ["Manufacturer", "Model", "Emissions", "AI-MPG", "Status"]
@@ -168,10 +146,12 @@ def create_pdf(df, fig=None):
         pdf.cell(widths[4], 10, str(row.get('Efficiency_Rating', 'N/A')), border=1, align='C')
         pdf.ln()
 
+    # Recommendations
     pdf.ln(5); pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "Recommendations", ln=True)
     pdf.set_font("helvetica", '', 10)
     pdf.multi_cell(0, 6, "Immediate attention should be directed toward the highest CO2 producing segments to mitigate enterprise carbon exposure.")
 
+    # Chart Page
     if fig:
         pdf.add_page()
         pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "Visual Efficiency Distribution", ln=True)
@@ -207,8 +187,8 @@ def classify_efficiency(mpg):
     return "Excellent" if mpg > 35 else "Average" if mpg > 20 else "Poor"
 
 # 3. INTERFACE
-st.sidebar.title(f"Fleet Intel v6.0")
-mode = st.sidebar.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics", "Audit History"])
+st.sidebar.title(f"Fleet Intel v5.9")
+mode = st.sidebar.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"])
 
 if mode == "Single Vehicle":
     st.header("Vehicle Profile")
@@ -239,7 +219,7 @@ if mode == "Single Vehicle":
         st.metric(f"{v_year} Efficiency Score", f"{display_mpg:.2f} MPG")
         st.success(f"Rating: {classify_efficiency(display_mpg)}")
 
-elif mode == "Bulk Fleet Analytics":
+else:
     st.header("Enterprise Analytics Engine")
     file = st.file_uploader("Upload Fleet Data", type=["csv", "xlsx"])
     if file:
@@ -255,18 +235,18 @@ elif mode == "Bulk Fleet Analytics":
             for i, p in enumerate(raw_preds):
                 row = df_raw.iloc[i] 
                 real_p = apply_hybrid_reality_logic(p, 
-                            row.get("Model Year", 2024), row.get("Make", "Unknown"), 
-                            row.get("Vehicle Class", "Mid-Size"), row.get("Fuel Type", "Regular"), 
-                            row.get("Engine Size", 2.0), row.get("Cylinders", 4), 
+                            row.get("Model Year", 2024), 
+                            row.get("Make", "Unknown"), 
+                            row.get("Vehicle Class", "Mid-Size"), 
+                            row.get("Fuel Type", "Regular"), 
+                            row.get("Engine Size", 2.0), 
+                            row.get("Cylinders", 4), 
                             row.get("CO2 Emissions", 200))
                 final_mpg.append(real_p)
 
             df_processed["Predicted_MPG"] = final_mpg
             df_processed["Annual_Fuel_Cost"] = (ANNUAL_MILES / df_processed["Predicted_MPG"]) * FUEL_PRICE
             df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(classify_efficiency)
-            
-            # Log to DB
-            log_to_ledger(df_processed["Predicted_MPG"].mean(), len(df_processed))
             
             st.divider()
             m1, m2 = st.columns(2)
@@ -279,13 +259,3 @@ elif mode == "Bulk Fleet Analytics":
             
             report_data = create_pdf(df_processed, fig=fig)
             st.download_button(label="Download Executive Strategy Report (PDF)", data=report_data, file_name="Fleet_Strategy_Report.pdf", mime="application/pdf")
-
-else:
-    st.header("Corporate Audit History")
-    conn = sqlite3.connect("fleet_intelligence.db")
-    history_df = pd.read_sql_query("SELECT * FROM audit_ledger ORDER BY timestamp DESC", conn)
-    conn.close()
-    if not history_df.empty:
-        st.table(history_df)
-    else:
-        st.info("No previous audits found.")
