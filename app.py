@@ -37,7 +37,7 @@ def init_db():
     conn = sqlite3.connect("fleet_intelligence.db")
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS audit_ledger 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, fleet_avg_mpg REAL, total_assets INTEGER, total_fuel_cost REAL)''')
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, fleet_avg_mpg REAL, total_assets INTEGER, total_fuel_cost REAL, insights_logged TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS performance_vault 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, vehicle_make TEXT, rnn_predicted_mpg REAL, 
                   physics_truth_mpg REAL, variance_percent REAL, was_corrected INTEGER)''')
@@ -54,15 +54,53 @@ def log_performance_metric_silent(make, rnn_mpg, physics_mpg, variance):
     conn.commit()
     conn.close()
 
-def log_fleet_session_silent(avg_mpg, asset_count, fuel_cost):
+def log_fleet_session_silent(avg_mpg, asset_count, fuel_cost, insights=""):
     conn = sqlite3.connect("fleet_intelligence.db")
     c = conn.cursor()
-    c.execute('''INSERT INTO audit_ledger (timestamp, fleet_avg_mpg, total_assets, total_fuel_cost) VALUES (?, ?, ?, ?)''',
-              (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), avg_mpg, asset_count, fuel_cost))
+    c.execute('''INSERT INTO audit_ledger (timestamp, fleet_avg_mpg, total_assets, total_fuel_cost, insights_logged) VALUES (?, ?, ?, ?, ?)''',
+              (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), avg_mpg, asset_count, fuel_cost, insights))
     conn.commit()
     conn.close()
 
 init_db()
+
+# ==========================================
+# ACTIVITY 4 & 5: ANALYTICS & INSIGHTS
+# ==========================================
+def render_fleet_visuals(df):
+    st.subheader("Fleet Performance Analytics")
+    v1, v2 = st.columns(2)
+    with v1:
+        fig_frontier = px.scatter(
+            df, x="Engine Size", y="Predicted_MPG", 
+            color="Efficiency_Rating", size="CO2 Emissions",
+            hover_name="Model", title="Efficiency Frontier: Displacement vs. MPG",
+            color_discrete_map={"Excellent": "#00ffcc", "Average": "#f1c40f", "Poor": "#ff4b4b"},
+            template="plotly_dark"
+        )
+        st.plotly_chart(fig_frontier, use_container_width=True)
+    with v2:
+        fig_cost = px.bar(
+            df, x="Make", y="Annual_Fuel_Cost", 
+            color="Efficiency_Rating", title="Annual Fuel Exposure by OEM",
+            barmode="group", template="plotly_dark"
+        )
+        st.plotly_chart(fig_cost, use_container_width=True)
+
+def generate_strategic_insights(df):
+    insights = []
+    avg_fleet_mpg = df["Predicted_MPG"].mean()
+    high_risk = df[df["Predicted_MPG"] < (avg_fleet_mpg * 0.7)]
+    if not high_risk.empty:
+        insights.append(f"CRITICAL: {len(high_risk)} assets are performing 30% below fleet average. Recommend immediate phase-out.")
+    
+    co2_col = "CO2 Emissions" if "CO2 Emissions" in df.columns else "Emissions"
+    if co2_col in df.columns:
+        top_polluter = df.groupby("Make")[co2_col].mean().idxmax()
+        insights.append(f"STRATEGIC: {top_polluter} assets hold the highest carbon intensity in your inventory.")
+    
+    insights.append("OPERATIONAL: Divert 'Excellent' rated assets to high-mileage routes to maximize fuel ROI.")
+    return insights
 
 # 1. SETUP & THEME
 st.set_page_config(page_title="Enterprise Fleet Intelligence", layout="wide")
@@ -133,7 +171,6 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
     max_physical_cap = (68.0 / (1 + friction_loss)) * (1 / m_factor)
     percent_variance = abs(rnn_mpg - chemical_truth_mpg) / chemical_truth_mpg
     
-    # NEW: SILENT AUDIT LOGGING
     log_performance_metric_silent(make, rnn_mpg, chemical_truth_mpg, percent_variance)
 
     if percent_variance > 0.12:
@@ -143,7 +180,7 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
     return round(min(final_mpg, max_physical_cap), 2)
 
 # --- THE ESG-READY PDF ENGINE ---
-def create_pdf(df, fig=None):
+def create_pdf(df, fig=None, insights=[]):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_fill_color(25, 25, 25); pdf.rect(0, 0, 210, 40, 'F')
@@ -152,6 +189,7 @@ def create_pdf(df, fig=None):
     pdf.set_font("helvetica", '', 10)
     pdf.cell(0, 5, f"REF: {random.randint(1000,9999)} | GENERATED: {datetime.datetime.now().strftime('%Y-%m-%d')}", ln=True, align='C')
     pdf.set_text_color(0, 0, 0); pdf.ln(15)
+    
     pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "Strategic Overview:", ln=True)
     pdf.set_font("helvetica", '', 11)
     avg_mpg = df['Predicted_MPG'].mean()
@@ -160,6 +198,14 @@ def create_pdf(df, fig=None):
                      f"is well-positioned for data-driven optimization.")
     pdf.multi_cell(0, 7, overview_text)
     pdf.ln(5)
+    
+    if insights:
+        pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "AI-Driven Strategic Insights:", ln=True)
+        pdf.set_font("helvetica", '', 10)
+        for insight in insights:
+            pdf.multi_cell(0, 6, f"- {insight}")
+        pdf.ln(5)
+
     co2_col = "CO2 Emissions" if "CO2 Emissions" in df.columns else next((c for c in df.columns if "CO2" in c.upper()), "Emissions")
     dist = df['Efficiency_Rating'].value_counts().to_dict()
     pdf.set_font("helvetica", 'B', 11); pdf.set_fill_color(242, 242, 242)
@@ -167,6 +213,7 @@ def create_pdf(df, fig=None):
     pdf.cell(63, 15, f"AVERAGE: {dist.get('Average', 0)}", border=1, align='C', fill=True)
     pdf.cell(63, 15, f"POOR: {dist.get('Poor', 0)}", border=1, ln=True, align='C', fill=True)
     pdf.ln(10)
+    
     pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "Critical Asset Highlights", ln=True)
     pdf.set_font("helvetica", 'B', 10); pdf.set_fill_color(0, 114, 255); pdf.set_text_color(255, 255, 255)
     headers = ["Manufacturer", "Model", "Emissions", "AI-MPG", "Status"]
@@ -180,9 +227,7 @@ def create_pdf(df, fig=None):
         pdf.cell(widths[3], 10, f"{row.get('Predicted_MPG', 0):.1f}", border=1, align='C')
         pdf.cell(widths[4], 10, str(row.get('Efficiency_Rating', 'N/A')), border=1, align='C')
         pdf.ln()
-    pdf.ln(5); pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "Recommendations", ln=True)
-    pdf.set_font("helvetica", '', 10)
-    pdf.multi_cell(0, 6, "Immediate attention should be directed toward the highest CO2 producing segments to mitigate enterprise carbon exposure.")
+    
     if fig:
         pdf.add_page()
         pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "Visual Efficiency Distribution", ln=True)
@@ -216,9 +261,8 @@ def classify_efficiency(mpg):
 st.sidebar.title(f"Fleet Intel v5.9")
 mode = st.sidebar.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"])
 
-# NEW: SILENT DEVELOPER BACKDOOR
 if st.query_params.get("dev_mode") == "true":
-    with st.sidebar.expander("🛠️ DEVELOPER BACKDOOR"):
+    with st.sidebar.expander("DEVELOPER BACKDOOR"):
         if st.button("Decrypt & View Audit Vault"):
             conn = sqlite3.connect("fleet_intelligence.db")
             vault = pd.read_sql_query("SELECT * FROM performance_vault", conn)
@@ -272,15 +316,23 @@ else:
             df_processed["Annual_Fuel_Cost"] = (ANNUAL_MILES / df_processed["Predicted_MPG"]) * FUEL_PRICE
             df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(classify_efficiency)
             
-            # NEW: SILENT FLEET SESSION LOGGING
-            log_fleet_session_silent(df_processed["Predicted_MPG"].mean(), len(df_processed), df_processed["Annual_Fuel_Cost"].sum())
-
             st.divider()
             m1, m2 = st.columns(2)
             m1.metric("Total Fleet Spend", f"${df_processed['Annual_Fuel_Cost'].sum():,.0f}")
             m2.metric("Avg Fleet MPG", f"{df_processed['Predicted_MPG'].mean():.1f}")
+            
             st.dataframe(df_processed)
-            fig = px.scatter(df_processed, x="Engine Size", y="Predicted_MPG", color="Efficiency_Rating", template="plotly_dark")
-            st.plotly_chart(fig, use_container_width=True)
-            report_data = create_pdf(df_processed, fig=fig)
+            
+            # ACTIVITY 4: RENDER VISUALS
+            render_fleet_visuals(df_processed)
+            
+            # ACTIVITY 5: GENERATE & LOG INSIGHTS
+            fleet_insights = generate_strategic_insights(df_processed)
+            st.subheader("Strategic Recommendations")
+            for ins in fleet_insights:
+                st.info(ins)
+            
+            log_fleet_session_silent(df_processed["Predicted_MPG"].mean(), len(df_processed), df_processed["Annual_Fuel_Cost"].sum(), insights=" | ".join(fleet_insights))
+
+            report_data = create_pdf(df_processed, fig=None, insights=fleet_insights)
             st.download_button(label="Download Executive Strategy Report (PDF)", data=report_data, file_name="Fleet_Strategy_Report.pdf", mime="application/pdf")
