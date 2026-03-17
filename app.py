@@ -40,7 +40,7 @@ def init_db():
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, fleet_avg_mpg REAL, total_assets INTEGER, total_fuel_cost REAL, insights_logged TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS performance_vault 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, vehicle_make TEXT, rnn_predicted_mpg REAL, 
-                  physics_truth_mpg REAL, variance_percent REAL, was_corrected INTEGER)''')
+                 physics_truth_mpg REAL, variance_percent REAL, was_corrected INTEGER)''')
     conn.commit()
     conn.close()
 
@@ -181,6 +181,12 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
 
 # --- THE ESG-READY PDF ENGINE (UPDATED WITH ERROR PROTECTION) ---
 def create_pdf(df, fig=None, insights=[]):
+    def safe_str(text):
+        try:
+            return str(text).encode('latin-1', 'replace').decode('latin-1')
+        except:
+            return "Data Error"
+
     pdf = FPDF()
     pdf.add_page()
     pdf.set_fill_color(25, 25, 25); pdf.rect(0, 0, 210, 40, 'F')
@@ -196,20 +202,14 @@ def create_pdf(df, fig=None, insights=[]):
     overview_text = (f"The current fleet trajectory indicates a healthy high-efficiency core. "
                      f"With a calculated fleet average of {avg_mpg:.1f} MPG, the organization "
                      f"is well-positioned for data-driven optimization.")
-    pdf.multi_cell(0, 7, overview_text)
+    pdf.multi_cell(0, 7, safe_str(overview_text))
     pdf.ln(5)
     
     if insights:
         pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "AI-Driven Strategic Insights:", ln=True)
         pdf.set_font("helvetica", '', 10)
         for insight in insights:
-            # SAFETY SNIPPET START: Encode to latin-1 and ignore failures to prevent FPDFException
-            try:
-                clean_insight = insight.encode('latin-1', 'ignore').decode('latin-1')
-                pdf.multi_cell(0, 6, f"- {clean_insight}")
-            except:
-                pdf.multi_cell(0, 6, "- [Formatting error in insight data]")
-            # SAFETY SNIPPET END
+            pdf.multi_cell(0, 6, f"- {safe_str(insight)}")
         pdf.ln(5)
 
     co2_col = "CO2 Emissions" if "CO2 Emissions" in df.columns else next((c for c in df.columns if "CO2" in c.upper()), "Emissions")
@@ -227,20 +227,24 @@ def create_pdf(df, fig=None, insights=[]):
     for i, h in enumerate(headers): pdf.cell(widths[i], 10, h, border=1, align='C', fill=True)
     pdf.ln(); pdf.set_text_color(0, 0, 0); pdf.set_font("helvetica", '', 10)
     for _, row in df.head(10).iterrows():
-        pdf.cell(widths[0], 10, str(row.get('Make', 'N/A')), border=1, align='C')
-        pdf.cell(widths[1], 10, str(row.get('Model', 'N/A')), border=1, align='C')
-        pdf.cell(widths[2], 10, str(row.get(co2_col, 'N/A')), border=1, align='C')
+        pdf.cell(widths[0], 10, safe_str(row.get('Make', 'N/A')), border=1, align='C')
+        pdf.cell(widths[1], 10, safe_str(row.get('Model', 'N/A')), border=1, align='C')
+        pdf.cell(widths[2], 10, safe_str(row.get(co2_col, 'N/A')), border=1, align='C')
         pdf.cell(widths[3], 10, f"{row.get('Predicted_MPG', 0):.1f}", border=1, align='C')
-        pdf.cell(widths[4], 10, str(row.get('Efficiency_Rating', 'N/A')), border=1, align='C')
+        pdf.cell(widths[4], 10, safe_str(row.get('Efficiency_Rating', 'N/A')), border=1, align='C')
         pdf.ln()
     
     if fig:
-        pdf.add_page()
-        pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "Visual Efficiency Distribution", ln=True)
-        img_bytes = fig.to_image(format="png", width=800, height=500, scale=2)
-        pdf.image(io.BytesIO(img_bytes), x=10, y=30, w=190)
+        try:
+            pdf.add_page()
+            pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "Visual Efficiency Distribution", ln=True)
+            img_bytes = fig.to_image(format="png", width=800, height=500, scale=2)
+            pdf.image(io.BytesIO(img_bytes), x=10, y=30, w=190)
+        except:
+            pdf.cell(0, 10, "[Chart skipped due to encoding/render constraint]", ln=True)
+
     pdf_out = pdf.output()
-    return bytes(pdf_out) if not isinstance(pdf_out, str) else pdf_out.encode('latin-1')
+    return bytes(pdf_out) if not isinstance(pdf_out, str) else pdf_out.encode('latin-1', 'replace')
 
 def nlp_translator(df):
     df.columns = [c.title().replace('_', ' ').strip() for c in df.columns]
