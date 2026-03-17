@@ -179,16 +179,21 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
         final_mpg = (rnn_mpg * 0.15) + (chemical_truth_mpg * 0.85)
     return round(min(final_mpg, max_physical_cap), 2)
 
-# --- THE ESG-READY PDF ENGINE (UPDATED WITH ERROR PROTECTION) ---
+# --- THE ESG-READY PDF ENGINE (FINAL STRIKE VERSION) ---
 def create_pdf(df, fig=None, insights=[]):
     def safe_str(text):
+        if text is None: return "N/A"
         try:
-            return str(text).encode('latin-1', 'replace').decode('latin-1')
+            # Force string and encode to ASCII to strip ALL non-standard characters
+            clean = str(text).encode('ascii', 'ignore').decode('ascii')
+            return clean.replace('\u2013', '-').replace('\u2014', '-').replace('\u2019', "'")
         except:
-            return "Data Error"
+            return "Data Formatting Error"
 
     pdf = FPDF()
     pdf.add_page()
+    
+    # Header
     pdf.set_fill_color(25, 25, 25); pdf.rect(0, 0, 210, 40, 'F')
     pdf.set_text_color(255, 255, 255); pdf.set_font("helvetica", 'B', 22)
     pdf.cell(0, 20, "FLEET STRATEGY & ESG ANALYTICS", ln=True, align='C')
@@ -196,6 +201,7 @@ def create_pdf(df, fig=None, insights=[]):
     pdf.cell(0, 5, f"REF: {random.randint(1000,9999)} | GENERATED: {datetime.datetime.now().strftime('%Y-%m-%d')}", ln=True, align='C')
     pdf.set_text_color(0, 0, 0); pdf.ln(15)
     
+    # Strategic Overview
     pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "Strategic Overview:", ln=True)
     pdf.set_font("helvetica", '', 11)
     avg_mpg = df['Predicted_MPG'].mean()
@@ -205,13 +211,19 @@ def create_pdf(df, fig=None, insights=[]):
     pdf.multi_cell(0, 7, safe_str(overview_text))
     pdf.ln(5)
     
+    # Insights Section
     if insights:
         pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "AI-Driven Strategic Insights:", ln=True)
         pdf.set_font("helvetica", '', 10)
         for insight in insights:
-            pdf.multi_cell(0, 6, f"- {safe_str(insight)}")
+            clean_line = safe_str(insight)
+            try:
+                pdf.multi_cell(0, 6, f"- {clean_line}")
+            except:
+                pdf.cell(0, 6, "- [Metadata Error]", ln=True)
         pdf.ln(5)
 
+    # Metrics
     co2_col = "CO2 Emissions" if "CO2 Emissions" in df.columns else next((c for c in df.columns if "CO2" in c.upper()), "Emissions")
     dist = df['Efficiency_Rating'].value_counts().to_dict()
     pdf.set_font("helvetica", 'B', 11); pdf.set_fill_color(242, 242, 242)
@@ -220,12 +232,14 @@ def create_pdf(df, fig=None, insights=[]):
     pdf.cell(63, 15, f"POOR: {dist.get('Poor', 0)}", border=1, ln=True, align='C', fill=True)
     pdf.ln(10)
     
+    # Table
     pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "Critical Asset Highlights", ln=True)
     pdf.set_font("helvetica", 'B', 10); pdf.set_fill_color(0, 114, 255); pdf.set_text_color(255, 255, 255)
     headers = ["Manufacturer", "Model", "Emissions", "AI-MPG", "Status"]
     widths = [40, 40, 30, 30, 50]
     for i, h in enumerate(headers): pdf.cell(widths[i], 10, h, border=1, align='C', fill=True)
     pdf.ln(); pdf.set_text_color(0, 0, 0); pdf.set_font("helvetica", '', 10)
+    
     for _, row in df.head(10).iterrows():
         pdf.cell(widths[0], 10, safe_str(row.get('Make', 'N/A')), border=1, align='C')
         pdf.cell(widths[1], 10, safe_str(row.get('Model', 'N/A')), border=1, align='C')
@@ -234,17 +248,26 @@ def create_pdf(df, fig=None, insights=[]):
         pdf.cell(widths[4], 10, safe_str(row.get('Efficiency_Rating', 'N/A')), border=1, align='C')
         pdf.ln()
     
+    # Plotly Image
     if fig:
         try:
             pdf.add_page()
             pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "Visual Efficiency Distribution", ln=True)
             img_bytes = fig.to_image(format="png", width=800, height=500, scale=2)
             pdf.image(io.BytesIO(img_bytes), x=10, y=30, w=190)
-        except:
-            pdf.cell(0, 10, "[Chart skipped due to encoding/render constraint]", ln=True)
+        except Exception:
+            pdf.cell(0, 10, "[Note: Visual distribution available in app dashboard]", ln=True)
 
-    pdf_out = pdf.output()
-    return bytes(pdf_out) if not isinstance(pdf_out, str) else pdf_out.encode('latin-1', 'replace')
+    # FINAL BINARY HANDSHAKE
+    try:
+        pdf_out = pdf.output()
+        return bytes(pdf_out) if not isinstance(pdf_out, str) else pdf_out.encode('latin-1', 'replace')
+    except:
+        err_pdf = FPDF()
+        err_pdf.add_page()
+        err_pdf.set_font("Arial", size=12)
+        err_pdf.cell(0, 10, "Report Error: Specific data contains incompatible encoding for PDF Export.", ln=True)
+        return err_pdf.output().encode('latin-1', 'replace')
 
 def nlp_translator(df):
     df.columns = [c.title().replace('_', ' ').strip() for c in df.columns]
