@@ -70,14 +70,19 @@ init_db()
 def render_fleet_visuals(df):
     st.subheader("Fleet Performance Analytics")
     
-    # Chart 1: Efficiency Frontier
+    # Chart 1: Efficiency Frontier (Minimized circles to prevent crowding)
     fig_frontier = px.scatter(
         df, x="Engine Size", y="Predicted_MPG", 
-        color="Efficiency_Rating", size="CO2 Emissions",
+        color="Efficiency_Rating", 
+        size="CO2 Emissions",
+        size_max=10, 
         hover_name="Model", title="Efficiency Frontier: Displacement vs. MPG",
         color_discrete_map={"Excellent": "#00ffcc", "Average": "#f1c40f", "Poor": "#ff4b4b"},
         template="plotly_dark"
     )
+    # Refine marker appearance for better density handling
+    fig_frontier.update_traces(marker=dict(opacity=0.75, line=dict(width=0.5, color='DarkSlateGrey')))
+    
     st.plotly_chart(fig_frontier, use_container_width=True)
 
     # Vertical Spacing and Divider
@@ -190,7 +195,6 @@ def create_pdf(df, fig=None, insights=[]):
     def safe_str(text):
         if text is None: return "N/A"
         try:
-            # Force string and encode to ASCII to strip ALL non-standard characters
             clean = str(text).encode('ascii', 'ignore').decode('ascii')
             return clean.replace('\u2013', '-').replace('\u2014', '-').replace('\u2019', "'")
         except:
@@ -264,7 +268,6 @@ def create_pdf(df, fig=None, insights=[]):
         except Exception:
             pdf.cell(0, 10, "[Note: Visual distribution available in app dashboard]", ln=True)
 
-    # FINAL BINARY HANDSHAKE
     try:
         pdf_out = pdf.output()
         return bytes(pdf_out) if not isinstance(pdf_out, str) else pdf_out.encode('latin-1', 'replace')
@@ -362,10 +365,8 @@ else:
             
             st.dataframe(df_processed)
             
-            # ACTIVITY 4: RENDER VISUALS
             render_fleet_visuals(df_processed)
             
-            # ACTIVITY 5: GENERATE & LOG INSIGHTS
             fleet_insights = generate_strategic_insights(df_processed)
             st.subheader("Strategic Recommendations")
             for ins in fleet_insights:
