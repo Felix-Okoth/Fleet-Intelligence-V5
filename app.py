@@ -179,7 +179,7 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
         final_mpg = (rnn_mpg * 0.15) + (chemical_truth_mpg * 0.85)
     return round(min(final_mpg, max_physical_cap), 2)
 
-# --- THE ESG-READY PDF ENGINE ---
+# --- THE ESG-READY PDF ENGINE (UPDATED WITH ERROR PROTECTION) ---
 def create_pdf(df, fig=None, insights=[]):
     pdf = FPDF()
     pdf.add_page()
@@ -203,7 +203,13 @@ def create_pdf(df, fig=None, insights=[]):
         pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "AI-Driven Strategic Insights:", ln=True)
         pdf.set_font("helvetica", '', 10)
         for insight in insights:
-            pdf.multi_cell(0, 6, f"- {insight}")
+            # SAFETY SNIPPET START: Encode to latin-1 and ignore failures to prevent FPDFException
+            try:
+                clean_insight = insight.encode('latin-1', 'ignore').decode('latin-1')
+                pdf.multi_cell(0, 6, f"- {clean_insight}")
+            except:
+                pdf.multi_cell(0, 6, "- [Formatting error in insight data]")
+            # SAFETY SNIPPET END
         pdf.ln(5)
 
     co2_col = "CO2 Emissions" if "CO2 Emissions" in df.columns else next((c for c in df.columns if "CO2" in c.upper()), "Emissions")
