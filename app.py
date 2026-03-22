@@ -350,6 +350,21 @@ else:
     file = st.file_uploader("Upload Fleet Data", type=["csv", "xlsx"])
     if file:
         df_raw = pd.read_csv(file) if file.name.lower().endswith('.csv') else pd.read_excel(file, engine='openpyxl')
+        
+        # --- HEALTH CHECK TABLE ADDITION ---
+        st.subheader("📊 Dataset Health Check")
+        with st.expander("Detailed Column Profiling", expanded=True):
+            health_df = pd.DataFrame({
+                "Column Name": df_raw.columns,
+                "Data Type": df_raw.dtypes.astype(str),
+                "Missing Values": df_raw.isnull().sum().values,
+                "Status": ["⚠️ Issues Found" if x > 0 else "✅ Healthy" for x in df_raw.isnull().sum().values]
+            })
+            st.dataframe(health_df, use_container_width=True, hide_index=True)
+            if df_raw.isnull().values.any():
+                st.warning(f"Detected {df_raw.isnull().sum().sum()} missing entries. AI will handle imputation automatically.")
+        # ------------------------------------
+
         df_processed = nlp_translator(df_raw.copy())
         if st.button("Process Intelligence"):
             ai_in_raw = prepare_ai_input(df_processed, scaler_X)
