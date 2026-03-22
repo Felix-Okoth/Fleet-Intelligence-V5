@@ -70,18 +70,24 @@ init_db()
 def render_fleet_visuals(df):
     st.subheader("Fleet Performance Analytics")
     
-    # Chart 1: Efficiency Frontier (Minimized circles to prevent crowding)
+    # Chart 1: Efficiency Frontier (Original Snippet Style)
     fig_frontier = px.scatter(
-        df, x="Engine Size", y="Predicted_MPG", 
+        df, 
+        x="Engine Size", 
+        y="Predicted_MPG", 
         color="Efficiency_Rating", 
-        size="CO2 Emissions",
-        size_max=10, 
-        hover_name="Model", title="Efficiency Frontier: Displacement vs. MPG",
-        color_discrete_map={"Excellent": "#00ffcc", "Average": "#f1c40f", "Poor": "#ff4b4b"},
+        hover_name="Model", 
+        title="Efficiency Frontier: Displacement vs. MPG",
+        color_discrete_map={
+            "Excellent": "#00ffcc", 
+            "Average": "#ff4b4b", 
+            "Poor": "#636efa"
+        },
         template="plotly_dark"
     )
-    # Refine marker appearance for better density handling
-    fig_frontier.update_traces(marker=dict(opacity=0.75, line=dict(width=0.5, color='DarkSlateGrey')))
+    
+    # Force small, uniform marker size for clarity
+    fig_frontier.update_traces(marker=dict(size=6, opacity=0.8))
     
     st.plotly_chart(fig_frontier, use_container_width=True)
 
