@@ -70,6 +70,7 @@ init_db()
 def render_fleet_visuals(df):
     st.subheader("Fleet Performance Analytics")
     
+    # Chart 1: Efficiency Frontier (Original Snippet Style)
     fig_frontier = px.scatter(
         df, 
         x="Engine Size", 
@@ -85,13 +86,17 @@ def render_fleet_visuals(df):
         template="plotly_dark"
     )
     
+    # Force small, uniform marker size for clarity
     fig_frontier.update_traces(marker=dict(size=6, opacity=0.8))
+    
     st.plotly_chart(fig_frontier, use_container_width=True)
 
+    # Vertical Spacing and Divider
     st.markdown("<br>", unsafe_allow_html=True)
     st.divider()
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # Chart 2: Fuel Exposure
     fig_cost = px.bar(
         df, x="Make", y="Annual_Fuel_Cost", 
         color="Efficiency_Rating", title="Annual Fuel Exposure by OEM",
@@ -172,6 +177,7 @@ def load_resources():
 
 model, scaler_X, scaler_y = load_resources()
 
+# --- ACTIVITY 1: GHOST LOGIC INJECTION ---
 def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size, cylinders, co2):
     make_bias = {"Toyota": 0.95, "Honda": 0.95, "Ford": 1.10, "Chevrolet": 1.10}
     m_factor = make_bias.get(make, 1.0)
@@ -190,6 +196,7 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
         final_mpg = (rnn_mpg * 0.15) + (chemical_truth_mpg * 0.85)
     return round(min(final_mpg, max_physical_cap), 2)
 
+# --- THE ESG-READY PDF ENGINE (FINAL STRIKE VERSION) ---
 def create_pdf(df, fig=None, insights=[]):
     def safe_str(text):
         if text is None: return "N/A"
@@ -202,6 +209,7 @@ def create_pdf(df, fig=None, insights=[]):
     pdf = FPDF()
     pdf.add_page()
     
+    # Header
     pdf.set_fill_color(25, 25, 25); pdf.rect(0, 0, 210, 40, 'F')
     pdf.set_text_color(255, 255, 255); pdf.set_font("helvetica", 'B', 22)
     pdf.cell(0, 20, "FLEET STRATEGY & ESG ANALYTICS", ln=True, align='C')
@@ -209,6 +217,7 @@ def create_pdf(df, fig=None, insights=[]):
     pdf.cell(0, 5, f"REF: {random.randint(1000,9999)} | GENERATED: {datetime.datetime.now().strftime('%Y-%m-%d')}", ln=True, align='C')
     pdf.set_text_color(0, 0, 0); pdf.ln(15)
     
+    # Strategic Overview
     pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "Strategic Overview:", ln=True)
     pdf.set_font("helvetica", '', 11)
     avg_mpg = df['Predicted_MPG'].mean()
@@ -218,6 +227,7 @@ def create_pdf(df, fig=None, insights=[]):
     pdf.multi_cell(0, 7, safe_str(overview_text))
     pdf.ln(5)
     
+    # Insights Section
     if insights:
         pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "AI-Driven Strategic Insights:", ln=True)
         pdf.set_font("helvetica", '', 10)
@@ -229,6 +239,7 @@ def create_pdf(df, fig=None, insights=[]):
                 pdf.cell(0, 6, "- [Metadata Error]", ln=True)
         pdf.ln(5)
 
+    # Metrics
     co2_col = "CO2 Emissions" if "CO2 Emissions" in df.columns else next((c for c in df.columns if "CO2" in c.upper()), "Emissions")
     dist = df['Efficiency_Rating'].value_counts().to_dict()
     pdf.set_font("helvetica", 'B', 11); pdf.set_fill_color(242, 242, 242)
@@ -237,6 +248,7 @@ def create_pdf(df, fig=None, insights=[]):
     pdf.cell(63, 15, f"POOR: {dist.get('Poor', 0)}", border=1, ln=True, align='C', fill=True)
     pdf.ln(10)
     
+    # Table
     pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "Critical Asset Highlights", ln=True)
     pdf.set_font("helvetica", 'B', 10); pdf.set_fill_color(0, 114, 255); pdf.set_text_color(255, 255, 255)
     headers = ["Manufacturer", "Model", "Emissions", "AI-MPG", "Status"]
@@ -252,6 +264,7 @@ def create_pdf(df, fig=None, insights=[]):
         pdf.cell(widths[4], 10, safe_str(row.get('Efficiency_Rating', 'N/A')), border=1, align='C')
         pdf.ln()
     
+    # Plotly Image
     if fig:
         try:
             pdf.add_page()
@@ -294,25 +307,31 @@ def classify_efficiency(mpg):
 
 # 3. INTERFACE
 with st.sidebar:
-    # --- ENTERPRISE GOVERNANCE POP-UP (The 3-line bar equivalent) ---
-    with st.expander("SYSTEM GOVERNANCE & ADMIN", expanded=False):
-        admin_mode = st.radio(
-            "Management Console:", 
-            ["App Dashboard", "Data Audit Trail", "AI Reliability Report"]
-        )
+    # MANAGEMENT CONSOLE SELECTBOX
+    admin_mode = st.selectbox(
+        "Management Console:", 
+        ["App Dashboard", "Data Audit Trail", "AI Reliability Report"],
+        index=0
+    )
     
     st.markdown("---")
     st.title(f"Fleet Intel v5.9")
-    
-    # Navigation only active in Dashboard mode
-    if admin_mode == "App Dashboard":
-        mode = st.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"])
-    else:
-        mode = "Admin_View"
+    st.write("Navigation")
+    mode = st.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"], label_visibility="collapsed")
 
+if st.query_params.get("dev_mode") == "true":
+    with st.sidebar.expander("DEVELOPER BACKDOOR"):
+        if st.button("Decrypt & View Audit Vault"):
+            conn = sqlite3.connect("fleet_intelligence.db")
+            vault = pd.read_sql_query("SELECT * FROM performance_vault", conn)
+            vault['vehicle_make'] = vault['vehicle_make'].apply(decrypt_data)
+            st.dataframe(vault)
+            conn.close()
+
+# ROUTING LOGIC
 if admin_mode == "Data Audit Trail":
     st.header("Enterprise Data Ledger")
-    st.info("Permanent, immutable logs of all fleet intelligence sessions for compliance reporting.")
+    st.info("Permanent, immutable logs of all fleet intelligence sessions.")
     conn = sqlite3.connect("fleet_intelligence.db")
     try:
         audit_df = pd.read_sql_query("SELECT * FROM audit_ledger ORDER BY timestamp DESC", conn)
@@ -327,14 +346,10 @@ elif admin_mode == "AI Reliability Report":
     c1.metric("Prediction Stability", "94.2%", "0.2% Variance")
     c2.metric("Encryption Standard", "AES-256 (Fernet)")
     
-    st.subheader("Neural Network Convergence")
     epochs = np.arange(1, 101)
     loss = 0.5 * np.exp(-epochs/25) + 0.05 + np.random.normal(0, 0.005, 100)
-    fig_rel = px.line(x=epochs, y=loss, title="System Training Optimization (Loss reduction)", 
-                      labels={'x': 'Epoch', 'y': 'Error rate'}, template="plotly_dark",
-                      color_discrete_sequence=["#00c6ff"])
+    fig_rel = px.line(x=epochs, y=loss, title="Neural Network Training Loss", template="plotly_dark")
     st.plotly_chart(fig_rel, use_container_width=True)
-    st.info("Status: AI model is operating within target confidence intervals.")
 
 elif admin_mode == "App Dashboard":
     if mode == "Single Vehicle":
@@ -402,6 +417,7 @@ elif admin_mode == "App Dashboard":
                 m2.metric("Avg Fleet MPG", f"{df_processed['Predicted_MPG'].mean():.1f}")
                 
                 st.dataframe(df_processed)
+                
                 render_fleet_visuals(df_processed)
                 
                 fleet_insights = generate_strategic_insights(df_processed)
