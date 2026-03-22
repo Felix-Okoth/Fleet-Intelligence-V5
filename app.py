@@ -316,8 +316,13 @@ with st.sidebar:
     
     st.markdown("---")
     st.title(f"Fleet Intel v5.9")
-    st.write("Navigation")
-    mode = st.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"], label_visibility="collapsed")
+    
+    # CONTEXT-AWARE NAVIGATION
+    if admin_mode == "App Dashboard":
+        st.write("Navigation")
+        mode = st.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"], label_visibility="collapsed")
+    else:
+        mode = None # Reset mode when not in dashboard
 
 if st.query_params.get("dev_mode") == "true":
     with st.sidebar.expander("DEVELOPER BACKDOOR"):
@@ -379,7 +384,7 @@ elif admin_mode == "App Dashboard":
             st.metric(f"{v_year} Efficiency Score", f"{display_mpg:.2f} MPG")
             st.success(f"Rating: {classify_efficiency(display_mpg)}")
 
-    else:
+    elif mode == "Bulk Fleet Analytics":
         st.header("Enterprise Analytics Engine")
         file = st.file_uploader("Upload Fleet Data", type=["csv", "xlsx"])
         if file:
