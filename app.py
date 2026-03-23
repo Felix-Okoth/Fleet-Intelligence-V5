@@ -9,13 +9,19 @@ import random
 import plotly.express as px
 from fpdf import FPDF
 import io
-import sqlite3
 from cryptography.fernet import Fernet
+from supabase import create_client, Client  # NEW: Supabase Integration
 
 # ==========================================
-# NEW: CRYPTOGRAPHY & DB INITIALIZATION
+# NEW: SUPABASE & CRYPTOGRAPHY INITIALIZATION
 # ==========================================
+# Connect to Supabase using secrets
+url = st.secrets["SUPABASE_URL"]
+key = st.secrets["SUPABASE_KEY"]
+supabase: Client = create_client(url, key)
+
 def handle_secrets():
+    # Keep the local key for AES, but in production, move this to st.secrets
     if not os.path.exists("dev_secret.key"):
         key = Fernet.generate_key()
         with open("dev_secret.key", "wb") as key_file:
@@ -33,36 +39,32 @@ def encrypt_data(data):
 def decrypt_data(token):
     return cipher.decrypt(token.encode()).decode()
 
-def init_db():
-    conn = sqlite3.connect("fleet_intelligence.db")
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS audit_ledger 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, fleet_avg_mpg REAL, total_assets INTEGER, total_fuel_cost REAL, insights_logged TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS performance_vault 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, vehicle_make TEXT, rnn_predicted_mpg REAL, 
-                 physics_truth_mpg REAL, variance_percent REAL, was_corrected INTEGER)''')
-    conn.commit()
-    conn.close()
-
-def log_performance_metric_silent(make, rnn_mpg, physics_mpg, variance):
-    conn = sqlite3.connect("fleet_intelligence.db")
-    c = conn.cursor()
+# --- NEW: MULTI-TENANT LOGGING FUNCTIONS ---
+def log_performance_metric_silent(make, rnn_mpg, physics_mpg, variance, company_id):
     enc_make = encrypt_data(make)
     was_corrected = 1 if variance > 0.12 else 0
-    c.execute('''INSERT INTO performance_vault (timestamp, vehicle_make, rnn_predicted_mpg, physics_truth_mpg, variance_percent, was_corrected) 
-                 VALUES (?, ?, ?, ?, ?, ?)''', (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), enc_make, rnn_mpg, physics_mpg, variance, was_corrected))
-    conn.commit()
-    conn.close()
+    
+    data = {
+        "company_id": company_id,
+        "timestamp": datetime.datetime.now().isoformat(),
+        "vehicle_make": enc_make,
+        "rnn_predicted_mpg": float(rnn_mpg),
+        "physics_truth_mpg": float(physics_mpg),
+        "variance_percent": float(variance),
+        "was_corrected": was_corrected
+    }
+    supabase.table("performance_vault").insert(data).execute()
 
-def log_fleet_session_silent(avg_mpg, asset_count, fuel_cost, insights=""):
-    conn = sqlite3.connect("fleet_intelligence.db")
-    c = conn.cursor()
-    c.execute('''INSERT INTO audit_ledger (timestamp, fleet_avg_mpg, total_assets, total_fuel_cost, insights_logged) VALUES (?, ?, ?, ?, ?)''',
-              (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), avg_mpg, asset_count, fuel_cost, insights))
-    conn.commit()
-    conn.close()
-
-init_db()
+def log_fleet_session_silent(avg_mpg, asset_count, fuel_cost, company_id, insights=""):
+    data = {
+        "company_id": company_id,
+        "timestamp": datetime.datetime.now().isoformat(),
+        "fleet_avg_mpg": float(avg_mpg),
+        "total_assets": int(asset_count),
+        "total_fuel_cost": float(fuel_cost),
+        "insights_logged": insights
+    }
+    supabase.table("audit_ledger").insert(data).execute()
 
 # ==========================================
 # ACTIVITY 4 & 5: ANALYTICS & INSIGHTS
@@ -70,7 +72,6 @@ init_db()
 def render_fleet_visuals(df):
     st.subheader("Fleet Performance Analytics")
     
-    # Chart 1: Efficiency Frontier (Original Snippet Style)
     fig_frontier = px.scatter(
         df, 
         x="Engine Size", 
@@ -86,17 +87,13 @@ def render_fleet_visuals(df):
         template="plotly_dark"
     )
     
-    # Force small, uniform marker size for clarity
     fig_frontier.update_traces(marker=dict(size=6, opacity=0.8))
-    
     st.plotly_chart(fig_frontier, use_container_width=True)
 
-    # Vertical Spacing and Divider
     st.markdown("<br>", unsafe_allow_html=True)
     st.divider()
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Chart 2: Fuel Exposure
     fig_cost = px.bar(
         df, x="Make", y="Annual_Fuel_Cost", 
         color="Efficiency_Rating", title="Annual Fuel Exposure by OEM",
@@ -122,16 +119,26 @@ def generate_strategic_insights(df):
 # 1. SETUP & THEME
 st.set_page_config(page_title="Enterprise Fleet Intelligence", layout="wide")
 
-# AUTHENTICATION
+# --- AUTHENTICATION WITH TENANCY ---
 def check_password():
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
+        st.session_state.company_id = None
+
     if not st.session_state.authenticated:
         st.sidebar.title("Secure Login")
         user_pwd = st.sidebar.text_input("Corporate Access Key", type="password")
         if st.sidebar.button("Access Platform"):
-            if user_pwd == "fleet2026":
+            # MAPPING KEYS TO COMPANY IDs
+            # In production, this would be a lookup in Supabase
+            credentials = {
+                "fleet2026": "77777777-7777-7777-7777-777777777777", # Company A
+                "partner2026": "88888888-8888-8888-8888-888888888888" # Company B
+            }
+            
+            if user_pwd in credentials:
                 st.session_state.authenticated = True
+                st.session_state.company_id = credentials[user_pwd]
                 st.rerun()
             else:
                 st.sidebar.error("Invalid Key")
@@ -162,10 +169,8 @@ div.stButton > button {{
 
 # 2. RESOURCES & LOGIC
 FUEL_PRICE, ANNUAL_MILES = 4.50, 15000
-
 RNN_COLS = ["Model Year", "Make", "Model", "Vehicle Class", "Engine Size", "Cylinders",
             "Transmission", "Fuel Type", "City (L/100km)", "Hwy (L/100km)", "Comb (L/100km)", "CO2 Emissions"]
-
 FUEL_MAP = {"Premium": 0, "Z": 0, "Regular": 1, "X": 1, "Diesel": 2, "D": 2, "Ethanol": 3, "E": 3, "Natural Gas": 4, "N": 4}
 
 @st.cache_resource
@@ -188,7 +193,8 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
     max_physical_cap = (68.0 / (1 + friction_loss)) * (1 / m_factor)
     percent_variance = abs(rnn_mpg - chemical_truth_mpg) / chemical_truth_mpg
     
-    log_performance_metric_silent(make, rnn_mpg, chemical_truth_mpg, percent_variance)
+    # Passing the session's company_id for isolation
+    log_performance_metric_silent(make, rnn_mpg, chemical_truth_mpg, percent_variance, st.session_state.company_id)
 
     if percent_variance > 0.12:
         final_mpg = chemical_truth_mpg
@@ -196,7 +202,7 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
         final_mpg = (rnn_mpg * 0.15) + (chemical_truth_mpg * 0.85)
     return round(min(final_mpg, max_physical_cap), 2)
 
-# --- THE ESG-READY PDF ENGINE (FINAL STRIKE VERSION) ---
+# --- THE ESG-READY PDF ENGINE ---
 def create_pdf(df, fig=None, insights=[]):
     def safe_str(text):
         if text is None: return "N/A"
@@ -208,8 +214,6 @@ def create_pdf(df, fig=None, insights=[]):
 
     pdf = FPDF()
     pdf.add_page()
-    
-    # Header
     pdf.set_fill_color(25, 25, 25); pdf.rect(0, 0, 210, 40, 'F')
     pdf.set_text_color(255, 255, 255); pdf.set_font("helvetica", 'B', 22)
     pdf.cell(0, 20, "FLEET STRATEGY & ESG ANALYTICS", ln=True, align='C')
@@ -217,7 +221,6 @@ def create_pdf(df, fig=None, insights=[]):
     pdf.cell(0, 5, f"REF: {random.randint(1000,9999)} | GENERATED: {datetime.datetime.now().strftime('%Y-%m-%d')}", ln=True, align='C')
     pdf.set_text_color(0, 0, 0); pdf.ln(15)
     
-    # Strategic Overview
     pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "Strategic Overview:", ln=True)
     pdf.set_font("helvetica", '', 11)
     avg_mpg = df['Predicted_MPG'].mean()
@@ -227,20 +230,13 @@ def create_pdf(df, fig=None, insights=[]):
     pdf.multi_cell(0, 7, safe_str(overview_text))
     pdf.ln(5)
     
-    # Insights Section
     if insights:
         pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "AI-Driven Strategic Insights:", ln=True)
         pdf.set_font("helvetica", '', 10)
         for insight in insights:
-            clean_line = safe_str(insight)
-            try:
-                pdf.multi_cell(0, 6, f"- {clean_line}")
-            except:
-                pdf.cell(0, 6, "- [Metadata Error]", ln=True)
+            pdf.multi_cell(0, 6, f"- {safe_str(insight)}")
         pdf.ln(5)
 
-    # Metrics
-    co2_col = "CO2 Emissions" if "CO2 Emissions" in df.columns else next((c for c in df.columns if "CO2" in c.upper()), "Emissions")
     dist = df['Efficiency_Rating'].value_counts().to_dict()
     pdf.set_font("helvetica", 'B', 11); pdf.set_fill_color(242, 242, 242)
     pdf.cell(63, 15, f"EXCELLENT: {dist.get('Excellent', 0)}", border=1, align='C', fill=True)
@@ -248,7 +244,6 @@ def create_pdf(df, fig=None, insights=[]):
     pdf.cell(63, 15, f"POOR: {dist.get('Poor', 0)}", border=1, ln=True, align='C', fill=True)
     pdf.ln(10)
     
-    # Table
     pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "Critical Asset Highlights", ln=True)
     pdf.set_font("helvetica", 'B', 10); pdf.set_fill_color(0, 114, 255); pdf.set_text_color(255, 255, 255)
     headers = ["Manufacturer", "Model", "Emissions", "AI-MPG", "Status"]
@@ -259,34 +254,17 @@ def create_pdf(df, fig=None, insights=[]):
     for _, row in df.head(10).iterrows():
         pdf.cell(widths[0], 10, safe_str(row.get('Make', 'N/A')), border=1, align='C')
         pdf.cell(widths[1], 10, safe_str(row.get('Model', 'N/A')), border=1, align='C')
-        pdf.cell(widths[2], 10, safe_str(row.get(co2_col, 'N/A')), border=1, align='C')
+        pdf.cell(widths[2], 10, str(row.get('CO2 Emissions', 'N/A')), border=1, align='C')
         pdf.cell(widths[3], 10, f"{row.get('Predicted_MPG', 0):.1f}", border=1, align='C')
         pdf.cell(widths[4], 10, safe_str(row.get('Efficiency_Rating', 'N/A')), border=1, align='C')
         pdf.ln()
-    
-    # Plotly Image
-    if fig:
-        try:
-            pdf.add_page()
-            pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "Visual Efficiency Distribution", ln=True)
-            img_bytes = fig.to_image(format="png", width=800, height=500, scale=2)
-            pdf.image(io.BytesIO(img_bytes), x=10, y=30, w=190)
-        except Exception:
-            pdf.cell(0, 10, "[Note: Visual distribution available in app dashboard]", ln=True)
 
-    try:
-        pdf_out = pdf.output()
-        return bytes(pdf_out) if not isinstance(pdf_out, str) else pdf_out.encode('latin-1', 'replace')
-    except:
-        err_pdf = FPDF()
-        err_pdf.add_page()
-        err_pdf.set_font("Arial", size=12)
-        err_pdf.cell(0, 10, "Report Error: Specific data contains incompatible encoding for PDF Export.", ln=True)
-        return err_pdf.output().encode('latin-1', 'replace')
+    pdf_out = pdf.output()
+    return bytes(pdf_out) if not isinstance(pdf_out, str) else pdf_out.encode('latin-1', 'replace')
 
 def nlp_translator(df):
     df.columns = [c.title().replace('_', ' ').strip() for c in df.columns]
-    mapping = {"Type Of Fuel": "Fuel Type", "Fueltype": "Fuel Type", "Emissions": "CO2 Emissions", "Co2 Emissions": "CO2 Emissions", "Combined": "Comb (L/100km)", "Make": "Make", "Model": "Model"}
+    mapping = {"Type Of Fuel": "Fuel Type", "Emissions": "CO2 Emissions", "Combined": "Comb (L/100km)"}
     df = df.rename(columns=mapping)
     if "Transmission" in df.columns:
         df["Trans_Clean"] = df["Transmission"].astype(str).str.upper().str.strip()
@@ -307,50 +285,40 @@ def classify_efficiency(mpg):
 
 # 3. INTERFACE
 with st.sidebar:
-    # MANAGEMENT CONSOLE SELECTBOX
-    admin_mode = st.selectbox(
-        "Management Console:", 
-        ["App Dashboard", "Data Audit Trail", "AI Reliability Report"],
-        index=0
-    )
-    
+    admin_mode = st.selectbox("Management Console:", ["App Dashboard", "Data Audit Trail", "AI Reliability Report"], index=0)
     st.markdown("---")
     st.title(f"Fleet Intel v5.9")
-    
-    # CONTEXT-AWARE NAVIGATION
     if admin_mode == "App Dashboard":
-        st.write("Navigation")
-        mode = st.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"], label_visibility="collapsed")
+        mode = st.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"])
     else:
-        mode = None # Reset mode when not in dashboard
+        mode = None
 
+# --- BACKDOOR & ISOLATED VIEWING ---
 if st.query_params.get("dev_mode") == "true":
     with st.sidebar.expander("DEVELOPER BACKDOOR"):
         if st.button("Decrypt & View Audit Vault"):
-            conn = sqlite3.connect("fleet_intelligence.db")
-            vault = pd.read_sql_query("SELECT * FROM performance_vault", conn)
-            vault['vehicle_make'] = vault['vehicle_make'].apply(decrypt_data)
-            st.dataframe(vault)
-            conn.close()
+            # Still filtered by company_id for safety
+            res = supabase.table("performance_vault").select("*").eq("company_id", st.session_state.company_id).execute()
+            vault = pd.DataFrame(res.data)
+            if not vault.empty:
+                vault['vehicle_make'] = vault['vehicle_make'].apply(decrypt_data)
+                st.dataframe(vault)
 
-# ROUTING LOGIC
 if admin_mode == "Data Audit Trail":
     st.header("Enterprise Data Ledger")
-    st.info("Permanent, immutable logs of all fleet intelligence sessions.")
-    conn = sqlite3.connect("fleet_intelligence.db")
-    try:
-        audit_df = pd.read_sql_query("SELECT * FROM audit_ledger ORDER BY timestamp DESC", conn)
-        st.dataframe(audit_df, use_container_width=True, hide_index=True)
-    except:
-        st.warning("Audit ledger is currently empty.")
-    conn.close()
+    st.info("Permanent, immutable logs of your company sessions.")
+    # ONLY FETCH DATA FOR THIS COMPANY
+    res = supabase.table("audit_ledger").select("*").eq("company_id", st.session_state.company_id).order("timestamp", desc=True).execute()
+    if res.data:
+        st.dataframe(pd.DataFrame(res.data), use_container_width=True, hide_index=True)
+    else:
+        st.warning("Audit ledger is currently empty for your company.")
 
 elif admin_mode == "AI Reliability Report":
     st.header("Model Integrity & Confidence")
     c1, c2 = st.columns(2)
     c1.metric("Prediction Stability", "94.2%", "0.2% Variance")
     c2.metric("Encryption Standard", "AES-256 (Fernet)")
-    
     epochs = np.arange(1, 101)
     loss = 0.5 * np.exp(-epochs/25) + 0.05 + np.random.normal(0, 0.005, 100)
     fig_rel = px.line(x=epochs, y=loss, title="Neural Network Training Loss", template="plotly_dark")
@@ -373,6 +341,7 @@ elif admin_mode == "App Dashboard":
             city_l = st.number_input("City (L/100km)", 2.0, 30.0, 10.0, step=0.1)
             hwy_l = st.number_input("Hwy (L/100km)", 2.0, 30.0, 8.0, step=0.1)
             comb = (city_l * 0.55) + (hwy_l * 0.45)
+        
         if st.button("Generate AI Prediction"):
             single_row = pd.DataFrame([{"Model Year": v_year, "Make": v_make, "Engine Size": eng, "Cylinders": cyl, "Fuel Type": fuel_t, "Vehicle Class": v_class, "Transmission": v_trans, "CO2 Emissions": co2, "City (L/100km)": city_l, "Hwy (L/100km)": hwy_l, "Comb (L/100km)": comb}])
             cleaned_df = nlp_translator(single_row)
@@ -380,7 +349,6 @@ elif admin_mode == "App Dashboard":
             rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1) 
             raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
             display_mpg = apply_hybrid_reality_logic(raw_mpg, v_year, v_make, v_class, fuel_t, eng, cyl, co2)
-            st.divider()
             st.metric(f"{v_year} Efficiency Score", f"{display_mpg:.2f} MPG")
             st.success(f"Rating: {classify_efficiency(display_mpg)}")
 
@@ -389,19 +357,6 @@ elif admin_mode == "App Dashboard":
         file = st.file_uploader("Upload Fleet Data", type=["csv", "xlsx"])
         if file:
             df_raw = pd.read_csv(file) if file.name.lower().endswith('.csv') else pd.read_excel(file, engine='openpyxl')
-            
-            st.subheader("Dataset Health Check")
-            with st.expander("Detailed Column Profiling", expanded=True):
-                health_df = pd.DataFrame({
-                    "Column Name": df_raw.columns,
-                    "Data Type": df_raw.dtypes.astype(str),
-                    "Missing Values": df_raw.isnull().sum().values,
-                    "Status": ["Issues Found" if x > 0 else "Healthy" for x in df_raw.isnull().sum().values]
-                })
-                st.dataframe(health_df, use_container_width=True, hide_index=True)
-                if df_raw.isnull().values.any():
-                    st.warning(f"Detected {df_raw.isnull().sum().sum()} missing entries. AI will handle imputation automatically.")
-
             df_processed = nlp_translator(df_raw.copy())
             if st.button("Process Intelligence"):
                 ai_in_raw = prepare_ai_input(df_processed, scaler_X)
@@ -416,21 +371,14 @@ elif admin_mode == "App Dashboard":
                 df_processed["Annual_Fuel_Cost"] = (ANNUAL_MILES / df_processed["Predicted_MPG"]) * FUEL_PRICE
                 df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(classify_efficiency)
                 
-                st.divider()
                 m1, m2 = st.columns(2)
                 m1.metric("Total Fleet Spend", f"${df_processed['Annual_Fuel_Cost'].sum():,.0f}")
                 m2.metric("Avg Fleet MPG", f"{df_processed['Predicted_MPG'].mean():.1f}")
-                
                 st.dataframe(df_processed)
-                
                 render_fleet_visuals(df_processed)
                 
                 fleet_insights = generate_strategic_insights(df_processed)
-                st.subheader("Strategic Recommendations")
-                for ins in fleet_insights:
-                    st.info(ins)
+                log_fleet_session_silent(df_processed["Predicted_MPG"].mean(), len(df_processed), df_processed["Annual_Fuel_Cost"].sum(), st.session_state.company_id, insights=" | ".join(fleet_insights))
                 
-                log_fleet_session_silent(df_processed["Predicted_MPG"].mean(), len(df_processed), df_processed["Annual_Fuel_Cost"].sum(), insights=" | ".join(fleet_insights))
-
-                report_data = create_pdf(df_processed, fig=None, insights=fleet_insights)
+                report_data = create_pdf(df_processed, insights=fleet_insights)
                 st.download_button(label="Download Executive Strategy Report (PDF)", data=report_data, file_name="Fleet_Strategy_Report.pdf", mime="application/pdf")
