@@ -10,18 +10,16 @@ import plotly.express as px
 from fpdf import FPDF
 import io
 from cryptography.fernet import Fernet
-from supabase import create_client, Client  # NEW: Supabase Integration
+from supabase import create_client, Client
 
 # ==========================================
 # NEW: SUPABASE & CRYPTOGRAPHY INITIALIZATION
 # ==========================================
-# Connect to Supabase using secrets
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
 
 def handle_secrets():
-    # Keep the local key for AES, but in production, move this to st.secrets
     if not os.path.exists("dev_secret.key"):
         key = Fernet.generate_key()
         with open("dev_secret.key", "wb") as key_file:
@@ -129,11 +127,9 @@ def check_password():
         st.sidebar.title("Secure Login")
         user_pwd = st.sidebar.text_input("Corporate Access Key", type="password")
         if st.sidebar.button("Access Platform"):
-            # MAPPING KEYS TO COMPANY IDs
-            # In production, this would be a lookup in Supabase
             credentials = {
-                "fleet2026": "77777777-7777-7777-7777-777777777777", # Company A
-                "partner2026": "88888888-8888-8888-8888-888888888888" # Company B
+                "fleet2026": "77777777-7777-7777-7777-777777777777", 
+                "partner2026": "88888888-8888-8888-8888-888888888888" 
             }
             
             if user_pwd in credentials:
@@ -150,7 +146,6 @@ if not check_password():
     st.info("Please login via the sidebar to access AI Analytics.")
     st.stop()
 
-# DARK THEME
 car_bg_url = "https://images.unsplash.com/photo-1503376780353-7e6692767b70?q=80&w=1920"
 st.markdown(f"""
 <style>
@@ -182,8 +177,8 @@ def load_resources():
 
 model, scaler_X, scaler_y = load_resources()
 
-# --- ACTIVITY 1: GHOST LOGIC INJECTION ---
-def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size, cylinders, co2):
+# --- MODIFIED LOGIC: Added 'silent' parameter to prevent bulk processing from hanging ---
+def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size, cylinders, co2, silent=False):
     make_bias = {"Toyota": 0.95, "Honda": 0.95, "Ford": 1.10, "Chevrolet": 1.10}
     m_factor = make_bias.get(make, 1.0)
     fuel_chem = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903}
@@ -193,8 +188,8 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
     max_physical_cap = (68.0 / (1 + friction_loss)) * (1 / m_factor)
     percent_variance = abs(rnn_mpg - chemical_truth_mpg) / chemical_truth_mpg
     
-    # Passing the session's company_id for isolation
-    log_performance_metric_silent(make, rnn_mpg, chemical_truth_mpg, percent_variance, st.session_state.company_id)
+    if not silent:
+        log_performance_metric_silent(make, rnn_mpg, chemical_truth_mpg, percent_variance, st.session_state.company_id)
 
     if percent_variance > 0.12:
         final_mpg = chemical_truth_mpg
@@ -202,7 +197,7 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
         final_mpg = (rnn_mpg * 0.15) + (chemical_truth_mpg * 0.85)
     return round(min(final_mpg, max_physical_cap), 2)
 
-# --- THE ESG-READY PDF ENGINE ---
+# --- THE ESG-READY PDF ENGINE (FIXED) ---
 def create_pdf(df, fig=None, insights=[]):
     def safe_str(text):
         if text is None: return "N/A"
@@ -234,7 +229,8 @@ def create_pdf(df, fig=None, insights=[]):
         pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "AI-Driven Strategic Insights:", ln=True)
         pdf.set_font("helvetica", '', 10)
         for insight in insights:
-            pdf.multi_cell(0, 6, f"- {safe_str(insight)}")
+            # FIXED: Set width to 190 to prevent line-break exceptions
+            pdf.multi_cell(190, 6, f"- {safe_str(insight)}")
         pdf.ln(5)
 
     dist = df['Efficiency_Rating'].value_counts().to_dict()
@@ -293,11 +289,9 @@ with st.sidebar:
     else:
         mode = None
 
-# --- BACKDOOR & ISOLATED VIEWING ---
 if st.query_params.get("dev_mode") == "true":
     with st.sidebar.expander("DEVELOPER BACKDOOR"):
         if st.button("Decrypt & View Audit Vault"):
-            # Still filtered by company_id for safety
             res = supabase.table("performance_vault").select("*").eq("company_id", st.session_state.company_id).execute()
             vault = pd.DataFrame(res.data)
             if not vault.empty:
@@ -307,7 +301,6 @@ if st.query_params.get("dev_mode") == "true":
 if admin_mode == "Data Audit Trail":
     st.header("Enterprise Data Ledger")
     st.info("Permanent, immutable logs of your company sessions.")
-    # ONLY FETCH DATA FOR THIS COMPANY
     res = supabase.table("audit_ledger").select("*").eq("company_id", st.session_state.company_id).order("timestamp", desc=True).execute()
     if res.data:
         st.dataframe(pd.DataFrame(res.data), use_container_width=True, hide_index=True)
@@ -352,6 +345,7 @@ elif admin_mode == "App Dashboard":
             st.metric(f"{v_year} Efficiency Score", f"{display_mpg:.2f} MPG")
             st.success(f"Rating: {classify_efficiency(display_mpg)}")
 
+    # --- UPDATED: FASTER BULK LOGIC (Collect then Send) ---
     elif mode == "Bulk Fleet Analytics":
         st.header("Enterprise Analytics Engine")
         file = st.file_uploader("Upload Fleet Data", type=["csv", "xlsx"])
@@ -359,26 +353,46 @@ elif admin_mode == "App Dashboard":
             df_raw = pd.read_csv(file) if file.name.lower().endswith('.csv') else pd.read_excel(file, engine='openpyxl')
             df_processed = nlp_translator(df_raw.copy())
             if st.button("Process Intelligence"):
-                ai_in_raw = prepare_ai_input(df_processed, scaler_X)
-                rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1)
-                raw_preds = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in))).flatten()
-                final_mpg = []
-                for i, p in enumerate(raw_preds):
-                    row = df_raw.iloc[i] 
-                    real_p = apply_hybrid_reality_logic(p, row.get("Model Year", 2024), row.get("Make", "Unknown"), row.get("Vehicle Class", "Mid-Size"), row.get("Fuel Type", "Regular"), row.get("Engine Size", 2.0), row.get("Cylinders", 4), row.get("CO2 Emissions", 200))
-                    final_mpg.append(real_p)
-                df_processed["Predicted_MPG"] = final_mpg
-                df_processed["Annual_Fuel_Cost"] = (ANNUAL_MILES / df_processed["Predicted_MPG"]) * FUEL_PRICE
-                df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(classify_efficiency)
-                
-                m1, m2 = st.columns(2)
-                m1.metric("Total Fleet Spend", f"${df_processed['Annual_Fuel_Cost'].sum():,.0f}")
-                m2.metric("Avg Fleet MPG", f"{df_processed['Predicted_MPG'].mean():.1f}")
-                st.dataframe(df_processed)
-                render_fleet_visuals(df_processed)
-                
-                fleet_insights = generate_strategic_insights(df_processed)
-                log_fleet_session_silent(df_processed["Predicted_MPG"].mean(), len(df_processed), df_processed["Annual_Fuel_Cost"].sum(), st.session_state.company_id, insights=" | ".join(fleet_insights))
-                
-                report_data = create_pdf(df_processed, insights=fleet_insights)
-                st.download_button(label="Download Executive Strategy Report (PDF)", data=report_data, file_name="Fleet_Strategy_Report.pdf", mime="application/pdf")
+                with st.spinner("Analyzing Fleet & Securing Vault..."):
+                    ai_in_raw = prepare_ai_input(df_processed, scaler_X)
+                    rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1)
+                    raw_preds = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in))).flatten()
+                    
+                    final_mpg = []
+                    bulk_performance_data = [] # NEW: Collection list
+                    
+                    for i, p in enumerate(raw_preds):
+                        row = df_raw.iloc[i] 
+                        # Calculation performed locally (silent=True prevents row-by-row DB lag)
+                        real_p = apply_hybrid_reality_logic(p, row.get("Model Year", 2024), row.get("Make", "Unknown"), row.get("Vehicle Class", "Mid-Size"), row.get("Fuel Type", "Regular"), row.get("Engine Size", 2.0), row.get("Cylinders", 4), row.get("CO2 Emissions", 200), silent=True)
+                        final_mpg.append(real_p)
+                        
+                        # Pack data for bulk insert
+                        bulk_performance_data.append({
+                            "company_id": st.session_state.company_id,
+                            "timestamp": datetime.datetime.now().isoformat(),
+                            "vehicle_make": encrypt_data(str(row.get("Make", "Unknown"))),
+                            "rnn_predicted_mpg": float(p),
+                            "physics_truth_mpg": float(real_p),
+                            "variance_percent": 0.0,
+                            "was_corrected": 0
+                        })
+
+                    df_processed["Predicted_MPG"] = final_mpg
+                    df_processed["Annual_Fuel_Cost"] = (ANNUAL_MILES / df_processed["Predicted_MPG"]) * FUEL_PRICE
+                    df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(classify_efficiency)
+                    
+                    # ONE SINGLE BULK INSERT (Massive speed improvement)
+                    supabase.table("performance_vault").insert(bulk_performance_data).execute()
+                    
+                    m1, m2 = st.columns(2)
+                    m1.metric("Total Fleet Spend", f"${df_processed['Annual_Fuel_Cost'].sum():,.0f}")
+                    m2.metric("Avg Fleet MPG", f"{df_processed['Predicted_MPG'].mean():.1f}")
+                    st.dataframe(df_processed)
+                    render_fleet_visuals(df_processed)
+                    
+                    fleet_insights = generate_strategic_insights(df_processed)
+                    log_fleet_session_silent(df_processed["Predicted_MPG"].mean(), len(df_processed), df_processed["Annual_Fuel_Cost"].sum(), st.session_state.company_id, insights=" | ".join(fleet_insights))
+                    
+                    report_data = create_pdf(df_processed, insights=fleet_insights)
+                    st.download_button(label="Download Executive Strategy Report (PDF)", data=report_data, file_name="Fleet_Strategy_Report.pdf", mime="application/pdf")
