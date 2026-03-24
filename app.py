@@ -13,21 +13,21 @@ from cryptography.fernet import Fernet
 from supabase import create_client, Client
 
 # ==========================================
-# NEW: SUPABASE & CRYPTOGRAPHY INITIALIZATION
+# SUPABASE & CRYPTOGRAPHY INITIALIZATION
 # ==========================================
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
 
 def handle_secrets():
-    if not os.path.exists("dev_secret.key"):
-        key = Fernet.generate_key()
-        with open("dev_secret.key", "wb") as key_file:
-            key_file.write(key)
-    else:
-        with open("dev_secret.key", "rb") as key_file:
-            key = key_file.read()
-    return Fernet(key)
+    # Directly pulls the key from the Streamlit Secrets vault as configured
+    try:
+        key = st.secrets["ENCRYPTION_KEY"]
+        return Fernet(key.encode())
+    except Exception as e:
+        st.error("Encryption Key missing from Streamlit Secrets!")
+        # Fallback for local testing if secrets aren't available
+        return Fernet(Fernet.generate_key())
 
 cipher = handle_secrets()
 
@@ -37,7 +37,7 @@ def encrypt_data(data):
 def decrypt_data(token):
     return cipher.decrypt(token.encode()).decode()
 
-# --- NEW: MULTI-TENANT LOGGING FUNCTIONS ---
+# --- MULTI-TENANT LOGGING FUNCTIONS ---
 def log_performance_metric_silent(make, rnn_mpg, physics_mpg, variance, company_id):
     enc_make = encrypt_data(make)
     was_corrected = 1 if variance > 0.12 else 0
@@ -64,9 +64,10 @@ def log_fleet_session_silent(avg_mpg, asset_count, fuel_cost, company_id, insigh
     }
     supabase.table("audit_ledger").insert(data).execute()
 
-# ==========================================
-# ACTIVITY 4 & 5: ANALYTICS & INSIGHTS
-# ==========================================
+# ===========================================
+# ANALYTICS & INSIGHTS
+# ===========================================              
+
 def render_fleet_visuals(df):
     st.subheader("Fleet Performance Analytics")
     
@@ -99,7 +100,7 @@ def render_fleet_visuals(df):
     )
     st.plotly_chart(fig_cost, use_container_width=True)
 
-# --- UPDATED: DYNAMIC ROI & ANOMALY DETECTION LOGIC (Fixed KeyError) ---
+# ---DYNAMIC ROI & ANOMALY DETECTION LOGIC---
 def generate_strategic_insights(df):
     insights = []
     
@@ -119,7 +120,7 @@ def generate_strategic_insights(df):
 
     outliers = df[df["Predicted_MPG"] < (avg_mpg - (1.5 * std_mpg))]
     if not outliers.empty:
-        insights.append(f"🔍 ANOMALY: {len(outliers)} models are statistical outliers for efficiency. If the data is correct, these assets have severe parasitic power loss.")
+        insights.append(f"ANOMALY: {len(outliers)} models are statistical outliers for efficiency. If the data is correct, these assets have severe parasitic power loss.")
 
     # 2. DYNAMIC ROI CALCULATION
     poor_tier = df[df["Efficiency_Rating"] == "Poor"]
@@ -338,7 +339,7 @@ def classify_efficiency(mpg):
 with st.sidebar:
     admin_mode = st.selectbox("Management Console:", ["App Dashboard", "Data Audit Trail", "AI Reliability Report"], index=0)
     st.markdown("---")
-    st.title(f"Fleet Intel v5.9")
+    st.title(f"Fleet Intel")
     if admin_mode == "App Dashboard":
         mode = st.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"])
     else:
