@@ -99,20 +99,54 @@ def render_fleet_visuals(df):
     )
     st.plotly_chart(fig_cost, use_container_width=True)
 
+# --- 1. DYNAMIC ROI & ANOMALY DETECTION LOGIC ---
 def generate_strategic_insights(df):
     insights = []
-    avg_fleet_mpg = df["Predicted_MPG"].mean()
-    high_risk = df[df["Predicted_MPG"] < (avg_fleet_mpg * 0.7)]
-    if not high_risk.empty:
-        insights.append(f"CRITICAL: {len(high_risk)} assets are performing 30% below fleet average. Recommend immediate phase-out.")
+    avg_mpg = df["Predicted_MPG"].mean()
+    std_mpg = df["Predicted_MPG"].std()
     
-    co2_col = "CO2 Emissions" if "CO2 Emissions" in df.columns else "Emissions"
-    if co2_col in df.columns:
-        top_polluter = df.groupby("Make")[co2_col].mean().idxmax()
-        insights.append(f"STRATEGIC: {top_polluter} assets hold the highest carbon intensity in your inventory.")
-    
-    insights.append("OPERATIONAL: Divert 'Excellent' rated assets to high-mileage routes to maximize fuel ROI.")
+    # DATA SANITY & ANOMALY DETECTION
+    anomalies = df[(df["Engine Size"] > 4.0) & (df["CO2 Emissions"] < 150)]
+    if not anomalies.empty:
+        insights.append(f"DATA INTEGRITY: {len(anomalies)} assets (e.g., {anomalies.iloc[0]['Make']}) show high displacement with suspiciously low emissions. This suggests a data entry gap or sensor error.")
+
+    outliers = df[df["Predicted_MPG"] < (avg_mpg - (1.5 * std_mpg))]
+    if not outliers.empty:
+        insights.append(f"🔍 ANOMALY: {len(outliers)} models are statistical outliers for efficiency. If the data is correct, these assets have severe parasitic power loss.")
+
+    # DYNAMIC ROI CALCULATION
+    poor_tier = df[df["Efficiency_Rating"] == "Poor"]
+    if not poor_tier.empty:
+        current_cost = poor_tier["Annual_Fuel_Cost"].sum()
+        optimized_cost = (ANNUAL_MILES / avg_mpg) * FUEL_PRICE * len(poor_tier)
+        savings = current_cost - optimized_cost
+        if savings > 0:
+            insights.append(f"LIQUIDITY GAP: Modernizing the 'Poor' tier to meet the fleet average would recover ${savings:,.2f} in annual cash flow.")
+
+    # DYNAMIC OEM ADVICE
+    if "Make" in df.columns:
+        oem_variance = df.groupby("Make")["Predicted_MPG"].std().idxmax()
+        insights.append(f"STRATEGIC: {oem_variance} models show the highest performance volatility. Recommend standardized maintenance for this OEM to stabilize fuel spend.")
+
     return insights
+
+# --- 2. DATASET HEALTH CHECK (WITH GAP ANALYSIS) ---
+def run_dataset_health_check(df):
+    st.subheader("Fleet Data Health Audit")
+    
+    # Identifying Gaps in Specific Models
+    missing_by_make = df.groupby("Make").apply(lambda x: x.isnull().sum().sum()).to_dict()
+    problem_oem = max(missing_by_make, key=missing_by_make.get) if any(missing_by_make.values()) else None
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Fleet Coverage", f"{((1 - (df.isnull().sum().sum() / df.size)) * 100):.1f}%")
+    c2.metric("Feature Completeness", "High" if not problem_oem else "Degraded")
+    c3.metric("Records Found", len(df))
+
+    if problem_oem and missing_by_make[problem_oem] > 0:
+        st.error(f"DATA GAP DETECTED: {problem_oem} assets have missing technical specs. The AI is 'guessing' these values, which reduces ROI accuracy.")
+    else:
+        st.success("Dataset is physically consistent. Proceeding with Neural Inference.")
 
 # 1. SETUP & THEME
 st.set_page_config(page_title="Enterprise Fleet Intelligence", layout="wide")
@@ -177,7 +211,6 @@ def load_resources():
 
 model, scaler_X, scaler_y = load_resources()
 
-# --- MODIFIED LOGIC: Added 'silent' parameter to prevent bulk processing from hanging ---
 def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size, cylinders, co2, silent=False):
     make_bias = {"Toyota": 0.95, "Honda": 0.95, "Ford": 1.10, "Chevrolet": 1.10}
     m_factor = make_bias.get(make, 1.0)
@@ -197,7 +230,6 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
         final_mpg = (rnn_mpg * 0.15) + (chemical_truth_mpg * 0.85)
     return round(min(final_mpg, max_physical_cap), 2)
 
-# --- THE ESG-READY PDF ENGINE (FIXED) ---
 def create_pdf(df, fig=None, insights=[]):
     def safe_str(text):
         if text is None: return "N/A"
@@ -229,7 +261,6 @@ def create_pdf(df, fig=None, insights=[]):
         pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "AI-Driven Strategic Insights:", ln=True)
         pdf.set_font("helvetica", '', 10)
         for insight in insights:
-            # FIXED: Set width to 190 to prevent line-break exceptions
             pdf.multi_cell(190, 6, f"- {safe_str(insight)}")
         pdf.ln(5)
 
@@ -345,12 +376,15 @@ elif admin_mode == "App Dashboard":
             st.metric(f"{v_year} Efficiency Score", f"{display_mpg:.2f} MPG")
             st.success(f"Rating: {classify_efficiency(display_mpg)}")
 
-    # --- UPDATED: FASTER BULK LOGIC (Collect then Send) ---
     elif mode == "Bulk Fleet Analytics":
         st.header("Enterprise Analytics Engine")
         file = st.file_uploader("Upload Fleet Data", type=["csv", "xlsx"])
         if file:
             df_raw = pd.read_csv(file) if file.name.lower().endswith('.csv') else pd.read_excel(file, engine='openpyxl')
+            
+            # --- INTEGRATED: HEALTH CHECK TRIGGER ---
+            run_dataset_health_check(df_raw)
+            
             df_processed = nlp_translator(df_raw.copy())
             if st.button("Process Intelligence"):
                 with st.spinner("Analyzing Fleet & Securing Vault..."):
@@ -359,15 +393,13 @@ elif admin_mode == "App Dashboard":
                     raw_preds = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in))).flatten()
                     
                     final_mpg = []
-                    bulk_performance_data = [] # NEW: Collection list
+                    bulk_performance_data = []
                     
                     for i, p in enumerate(raw_preds):
                         row = df_raw.iloc[i] 
-                        # Calculation performed locally (silent=True prevents row-by-row DB lag)
                         real_p = apply_hybrid_reality_logic(p, row.get("Model Year", 2024), row.get("Make", "Unknown"), row.get("Vehicle Class", "Mid-Size"), row.get("Fuel Type", "Regular"), row.get("Engine Size", 2.0), row.get("Cylinders", 4), row.get("CO2 Emissions", 200), silent=True)
                         final_mpg.append(real_p)
                         
-                        # Pack data for bulk insert
                         bulk_performance_data.append({
                             "company_id": st.session_state.company_id,
                             "timestamp": datetime.datetime.now().isoformat(),
@@ -382,7 +414,6 @@ elif admin_mode == "App Dashboard":
                     df_processed["Annual_Fuel_Cost"] = (ANNUAL_MILES / df_processed["Predicted_MPG"]) * FUEL_PRICE
                     df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(classify_efficiency)
                     
-                    # ONE SINGLE BULK INSERT (Massive speed improvement)
                     supabase.table("performance_vault").insert(bulk_performance_data).execute()
                     
                     m1, m2 = st.columns(2)
@@ -391,7 +422,11 @@ elif admin_mode == "App Dashboard":
                     st.dataframe(df_processed)
                     render_fleet_visuals(df_processed)
                     
+                    # --- INTEGRATED: DYNAMIC ROI & ANOMALY INSIGHTS ---
                     fleet_insights = generate_strategic_insights(df_processed)
+                    for insight in fleet_insights:
+                        st.info(f"{insight}")
+
                     log_fleet_session_silent(df_processed["Predicted_MPG"].mean(), len(df_processed), df_processed["Annual_Fuel_Cost"].sum(), st.session_state.company_id, insights=" | ".join(fleet_insights))
                     
                     report_data = create_pdf(df_processed, insights=fleet_insights)
