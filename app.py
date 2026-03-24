@@ -20,14 +20,13 @@ key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
 
 def handle_secrets():
-    # Directly pulls the key from the Streamlit Secrets vault as configured
+    # UPDATED: No more random fallback to ensure data consistency
     try:
-        key = st.secrets["ENCRYPTION_KEY"]
-        return Fernet(key.encode())
+        enc_key = st.secrets["ENCRYPTION_KEY"]
+        return Fernet(enc_key.encode())
     except Exception as e:
-        st.error("Encryption Key missing from Streamlit Secrets!")
-        # Fallback for local testing if secrets aren't available
-        return Fernet(Fernet.generate_key())
+        st.error("CRITICAL: Encryption Key missing or malformed in Streamlit Secrets! Database writes disabled.")
+        st.stop() # Prevents app from running with a 'fake' temporary key
 
 cipher = handle_secrets()
 
@@ -420,8 +419,14 @@ elif admin_mode == "App Dashboard":
                     final_mpg = []
                     bulk_performance_data = []
                     
+                    # UPDATED: Corrected logic to calculate and log actual physics truth in bulk
                     for i, p in enumerate(raw_preds):
                         row = df_raw.iloc[i] 
+                        # Physics truth calculation for the baseline
+                        fuel_chem = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903}
+                        energy_constant = fuel_chem.get(row.get("Fuel Type", "Regular"), 8887)
+                        chem_truth = energy_constant / (max(row.get("CO2 Emissions", 200), 1) * 1.609)
+                        
                         real_p = apply_hybrid_reality_logic(p, row.get("Model Year", 2024), row.get("Make", "Unknown"), row.get("Vehicle Class", "Mid-Size"), row.get("Fuel Type", "Regular"), row.get("Engine Size", 2.0), row.get("Cylinders", 4), row.get("CO2 Emissions", 200), silent=True)
                         final_mpg.append(real_p)
                         
@@ -430,9 +435,9 @@ elif admin_mode == "App Dashboard":
                             "timestamp": datetime.datetime.now().isoformat(),
                             "vehicle_make": encrypt_data(str(row.get("Make", "Unknown"))),
                             "rnn_predicted_mpg": float(p),
-                            "physics_truth_mpg": float(real_p),
-                            "variance_percent": 0.0,
-                            "was_corrected": 0
+                            "physics_truth_mpg": float(chem_truth),
+                            "variance_percent": float(abs(p - chem_truth) / max(chem_truth, 1)),
+                            "was_corrected": 1 if (abs(p - chem_truth) / max(chem_truth, 1)) > 0.12 else 0
                         })
 
                     df_processed["Predicted_MPG"] = final_mpg
