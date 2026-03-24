@@ -99,22 +99,29 @@ def render_fleet_visuals(df):
     )
     st.plotly_chart(fig_cost, use_container_width=True)
 
-# --- 1. DYNAMIC ROI & ANOMALY DETECTION LOGIC ---
+# --- UPDATED: DYNAMIC ROI & ANOMALY DETECTION LOGIC (Fixed KeyError) ---
 def generate_strategic_insights(df):
     insights = []
+    
+    # Flexible column lookup to prevent KeyErrors
+    co2_col = "CO2 Emissions" if "CO2 Emissions" in df.columns else ("Emissions" if "Emissions" in df.columns else None)
+    eng_col = "Engine Size" if "Engine Size" in df.columns else None
+    
     avg_mpg = df["Predicted_MPG"].mean()
     std_mpg = df["Predicted_MPG"].std()
     
-    # DATA SANITY & ANOMALY DETECTION
-    anomalies = df[(df["Engine Size"] > 4.0) & (df["CO2 Emissions"] < 150)]
-    if not anomalies.empty:
-        insights.append(f"DATA INTEGRITY: {len(anomalies)} assets (e.g., {anomalies.iloc[0]['Make']}) show high displacement with suspiciously low emissions. This suggests a data entry gap or sensor error.")
+    # 1. DATA SANITY & ANOMALY DETECTION
+    if eng_col and co2_col:
+        anomalies = df[(df[eng_col] > 4.0) & (df[co2_col] < 150)]
+        if not anomalies.empty:
+            sample_make = anomalies.iloc[0]['Make'] if 'Make' in anomalies.columns else "Unknown"
+            insights.append(f"DATA INTEGRITY: {len(anomalies)} assets (e.g., {sample_make}) show high displacement with suspiciously low emissions. This suggests a data entry gap or sensor error.")
 
     outliers = df[df["Predicted_MPG"] < (avg_mpg - (1.5 * std_mpg))]
     if not outliers.empty:
         insights.append(f"🔍 ANOMALY: {len(outliers)} models are statistical outliers for efficiency. If the data is correct, these assets have severe parasitic power loss.")
 
-    # DYNAMIC ROI CALCULATION
+    # 2. DYNAMIC ROI CALCULATION
     poor_tier = df[df["Efficiency_Rating"] == "Poor"]
     if not poor_tier.empty:
         current_cost = poor_tier["Annual_Fuel_Cost"].sum()
@@ -123,10 +130,11 @@ def generate_strategic_insights(df):
         if savings > 0:
             insights.append(f"LIQUIDITY GAP: Modernizing the 'Poor' tier to meet the fleet average would recover ${savings:,.2f} in annual cash flow.")
 
-    # DYNAMIC OEM ADVICE
-    if "Make" in df.columns:
-        oem_variance = df.groupby("Make")["Predicted_MPG"].std().idxmax()
-        insights.append(f"STRATEGIC: {oem_variance} models show the highest performance volatility. Recommend standardized maintenance for this OEM to stabilize fuel spend.")
+    # 3. DYNAMIC OEM ADVICE
+    if "Make" in df.columns and not df.empty:
+        if df["Make"].nunique() > 1:
+            oem_variance = df.groupby("Make")["Predicted_MPG"].std().idxmax()
+            insights.append(f"STRATEGIC: {oem_variance} models show the highest performance volatility. Recommend standardized maintenance for this OEM.")
 
     return insights
 
@@ -290,14 +298,30 @@ def create_pdf(df, fig=None, insights=[]):
     return bytes(pdf_out) if not isinstance(pdf_out, str) else pdf_out.encode('latin-1', 'replace')
 
 def nlp_translator(df):
+    # 1. Basic Formatting: Title Case and removing underscores
     df.columns = [c.title().replace('_', ' ').strip() for c in df.columns]
-    mapping = {"Type Of Fuel": "Fuel Type", "Emissions": "CO2 Emissions", "Combined": "Comb (L/100km)"}
+    
+    # 2. Robust Auto-Mapping: Catch variations before they cause KeyErrors
+    for col in df.columns:
+        if "CO2" in col.upper() or "EMISSION" in col.upper():
+            df = df.rename(columns={col: "CO2 Emissions"})
+        if "ENGINE" in col.upper() or "DISPLACEMENT" in col.upper():
+            df = df.rename(columns={col: "Engine Size"})
+        if "COMB" in col.upper() and "L/100" in col.upper():
+            df = df.rename(columns={col: "Comb (L/100km)"})
+
+    # 3. Explicit Mapping for edge cases
+    mapping = {"Type Of Fuel": "Fuel Type", "Combined": "Comb (L/100km)"}
     df = df.rename(columns=mapping)
+    
+    # 4. Feature Encoding
     if "Transmission" in df.columns:
         df["Trans_Clean"] = df["Transmission"].astype(str).str.upper().str.strip()
         df["Transmission"] = df["Trans_Clean"].apply(lambda x: 2 if "CVT" in x else 1 if "M" in x else 0)
+        
     if "Fuel Type" in df.columns:
         df["Fuel Type"] = df["Fuel Type"].astype(str).str.title().str.strip().map(lambda x: FUEL_MAP.get(x, 1))
+        
     return df
 
 def prepare_ai_input(df, scaler_X):
