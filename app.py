@@ -51,13 +51,14 @@ def log_performance_metric_silent(make, rnn_mpg, physics_mpg, variance, company_
         "variance_percent": float(variance),
         "was_corrected": was_corrected
     }
-try:
-        # Pushed 4 spaces to the right
+
+    # Positioned INSIDE the function to access the 'data' variable
+    try:
         supabase.table("performance_vault").insert(data).execute()
         st.success("Data successfully synced to Performance Vault!")
-except Exception as e:
-        # Pushed 4 spaces to the right
+    except Exception as e:
         st.error(f"Supabase rejected the data. Error: {e}")
+        # This will now correctly show the labels for debugging
         st.write("Checking labels being sent to Supabase:", data)
         st.stop()
 
@@ -134,7 +135,7 @@ def generate_strategic_insights(df):
     poor_tier = df[df["Efficiency_Rating"] == "Poor"]
     if not poor_tier.empty:
         current_cost = poor_tier["Annual_Fuel_Cost"].sum()
-        optimized_cost = (ANNUAL_MILES / avg_mpg) * FUEL_PRICE * len(poor_tier)
+        optimized_cost = (4.50 / avg_mpg) * 15000 * len(poor_tier)
         savings = current_cost - optimized_cost
         if savings > 0:
             insights.append(f"LIQUIDITY GAP: Modernizing the 'Poor' tier to meet the fleet average would recover ${savings:,.2f} in annual cash flow.")
@@ -450,7 +451,7 @@ elif admin_mode == "App Dashboard":
                         })
 
                     df_processed["Predicted_MPG"] = final_mpg
-                    df_processed["Annual_Fuel_Cost"] = (ANNUAL_MILES / df_processed["Predicted_MPG"]) * FUEL_PRICE
+                    df_processed["Annual_Fuel_Cost"] = (15000 / df_processed["Predicted_MPG"]) * 4.50
                     df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(classify_efficiency)
                     
                     supabase.table("performance_vault").insert(bulk_performance_data).execute()
