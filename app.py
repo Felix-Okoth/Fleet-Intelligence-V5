@@ -454,6 +454,10 @@ elif admin_mode == "App Dashboard":
                     df_processed["Annual_Fuel_Cost"] = (15000 / df_processed["Predicted_MPG"]) * 4.50
                     df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(classify_efficiency)
                     
+                   # Convert NaN to None so Supabase can store them as NULL
+                    bulk_performance_data = df_processed.replace({np.nan: None}).to_dict(orient='records')
+
+                   # Insert the cleaned data
                     supabase.table("performance_vault").insert(bulk_performance_data).execute()
                     
                     m1, m2 = st.columns(2)
