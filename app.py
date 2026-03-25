@@ -25,8 +25,9 @@ def handle_secrets():
         enc_key = st.secrets["ENCRYPTION_KEY"]
         return Fernet(enc_key.encode())
     except Exception as e:
-        st.error("CRITICAL: Encryption Key missing or malformed in Streamlit Secrets! Database writes disabled.")
-        st.stop() # Prevents app from running with a 'fake' temporary key
+        st.error(f"CRITICAL ERROR: {e}")
+        st.info("Check if ENCRYPTION_KEY in Streamlit Secrets is a valid Fernet key.")
+        st.stop()
 
 cipher = handle_secrets()
 
