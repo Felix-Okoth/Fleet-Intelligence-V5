@@ -1,0 +1,12 @@
+# Streamlit secrets
+.streamlit/
+
+# Python cache and environment
+__pycache__/
+*.pyc
+venv/
+env/
+.env
+
+# Model and scaler files (Optional: keep them if you want them on GitHub)
+# If these are very large, it's better to ignore them, but for now, they are okay.
