@@ -51,17 +51,15 @@ def log_performance_metric_silent(make, rnn_mpg, physics_mpg, variance, company_
         "variance_percent": float(variance),
         "was_corrected": was_corrected
     }
-    try:
-    # This is your original line, now wrapped in a 'try' block
-    supabase.table("performance_vault").insert(data).execute()
-    st.success("Data successfully synced to Performance Vault!")
-except Exception as e:
-    # This will print the EXACT reason Supabase is rejecting the data
-    st.error(f"Supabase rejected the data. Error: {e}")
-    
-    # This helps us see if the labels in 'data' match the database columns
-    st.write("Checking labels being sent to Supabase:", data)
-    st.stop()
+try:
+        # Pushed 4 spaces to the right
+        supabase.table("performance_vault").insert(data).execute()
+        st.success("Data successfully synced to Performance Vault!")
+    except Exception as e:
+        # Pushed 4 spaces to the right
+        st.error(f"Supabase rejected the data. Error: {e}")
+        st.write("Checking labels being sent to Supabase:", data)
+        st.stop()
 
 def log_fleet_session_silent(avg_mpg, asset_count, fuel_cost, company_id, insights=""):
     data = {
