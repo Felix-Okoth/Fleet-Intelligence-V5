@@ -55,7 +55,7 @@ try:
         # Pushed 4 spaces to the right
         supabase.table("performance_vault").insert(data).execute()
         st.success("Data successfully synced to Performance Vault!")
-    except Exception as e:
+except Exception as e:
         # Pushed 4 spaces to the right
         st.error(f"Supabase rejected the data. Error: {e}")
         st.write("Checking labels being sent to Supabase:", data)
