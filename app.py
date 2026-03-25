@@ -454,19 +454,16 @@ elif admin_mode == "App Dashboard":
                     df_processed["Annual_Fuel_Cost"] = (15000 / df_processed["Predicted_MPG"]) * 4.50
                     df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(classify_efficiency)
                     
-                   # 1. Prepare the data (handling the missing BMW values)
-bulk_performance_data = df_processed.replace({np.nan: None}).to_dict(orient='records')
+                    # 1. Prepare the data (handling the missing BMW values)
+                    bulk_performance_data = df_processed.replace({np.nan: None}).to_dict(orient='records')
 
-# 2. Try to send it to the database
-try:
-    supabase.table("performance_vault").insert(bulk_performance_data).execute()
-    st.success("Data successfully synced to Supabase!")
-except Exception as e:
-    # This will print the EXACT reason Supabase is rejecting your data
-    st.error(f"Supabase rejected the data. Error: {e}")
-
-                   # Insert the cleaned data
-                    supabase.table("performance_vault").insert(bulk_performance_data).execute()
+                    # 2. Try to send it to the database
+                    try:
+                        supabase.table("performance_vault").insert(bulk_performance_data).execute()
+                        st.success("Data successfully synced to Supabase!")
+                    except Exception as e:
+                        # This will print the EXACT reason Supabase is rejecting your data
+                        st.error(f"Supabase rejected the data. Error: {e}")
                     
                     m1, m2 = st.columns(2)
                     m1.metric("Total Fleet Spend", f"${df_processed['Annual_Fuel_Cost'].sum():,.0f}")
