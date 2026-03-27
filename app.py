@@ -9,6 +9,7 @@ import random
 import plotly.express as px
 from fpdf import FPDF
 import io
+import math  # Added for JSON compliance checks
 from cryptography.fernet import Fernet
 from supabase import create_client, Client
 
@@ -450,6 +451,13 @@ elif admin_mode == "App Dashboard":
                     # Prepare data for insertion (using current df_processed columns)
                     # Mapping local names to Supabase column names
                     bulk_data_to_send = []
+
+                    # Helper function to ensure JSON compliance
+                    def clean_float(val):
+                        if val is None or not isinstance(val, (int, float)) or math.isnan(val) or math.isinf(val):
+                            return None
+                        return float(val)
+
                     for _, row in df_processed.iterrows():
                         fuel_chem = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903}
                         energy_constant = fuel_chem.get(row.get("Fuel Type"), 8887)
@@ -459,11 +467,11 @@ elif admin_mode == "App Dashboard":
                             "company_id": st.session_state.company_id,
                             "timestamp": datetime.datetime.now().isoformat(),
                             "vehicle_make": encrypt_data(str(row.get("Make", "Unknown"))),
-                            "rnn_predicted_mpg": float(row["Predicted_MPG"]),
-                            "physics_truth_mpg": float(chem_truth),
-                            "variance_percent": float(abs(row["Predicted_MPG"] - chem_truth) / max(chem_truth, 1)),
+                            "rnn_predicted_mpg": clean_float(row["Predicted_MPG"]),
+                            "physics_truth_mpg": clean_float(chem_truth),
+                            "variance_percent": clean_float(abs(row["Predicted_MPG"] - chem_truth) / max(chem_truth, 1)),
                             "was_corrected": 1 if (abs(row["Predicted_MPG"] - chem_truth) / max(chem_truth, 1)) > 0.12 else 0,
-                            "Annual_Fuel_Cost": float(row["Annual_Fuel_Cost"]),
+                            "Annual_Fuel_Cost": clean_float(row["Annual_Fuel_Cost"]),
                             "Efficiency_Rating": str(row["Efficiency_Rating"])
                         })
 
