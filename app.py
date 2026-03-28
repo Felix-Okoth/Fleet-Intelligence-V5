@@ -419,7 +419,11 @@ elif admin_mode == "App Dashboard":
 
             if st.button("Process Intelligence"):
                 with st.spinner("Analyzing Fleet & Securing Vault..."):
-                    # --- REVISED: AUTO-HEAL & MISMATCH DETECTION LOGIC ---
+                    # --- PERFORMANCE OPTIMIZATION: BULK FETCH REFERENCE DATA ---
+                    unique_models = df_processed['Model'].unique().tolist()
+                    ref_response = supabase.table("vehicle_reference").select("make, model, engine_size, cylinders, fuel_type").in_("model", unique_models).execute()
+                    ref_lookup = {item['model']: item for item in ref_response.data}
+
                     df_processed['Data_Status'] = "Verified"
                     df_processed['Audit_Trail'] = ""
                     auto_healed_count = 0
@@ -430,11 +434,10 @@ elif admin_mode == "App Dashboard":
                         current_make = str(row.get('Make'))
                         current_model = str(row.get('Model'))
                         
-                        # Fetch ground truth from Supabase
-                        healed_specs = auto_heal_specs(current_make, current_model)
+                        # Local lookup (Instant) instead of network call
+                        healed_specs = ref_lookup.get(current_model)
                         
                         if healed_specs:
-                            # 1. Catch Mismatches (Input Make vs Reference Make)
                             ref_make = healed_specs['make']
                             if current_make.lower() != ref_make.lower():
                                 df_processed.at[index, 'Make'] = ref_make
@@ -442,7 +445,6 @@ elif admin_mode == "App Dashboard":
                                 mismatch_count += 1
                                 df_processed.at[index, 'Data_Status'] = "Repaired"
                             
-                            # 2. Heal Missing Specs
                             if pd.isna(row.get('Engine Size')) or row.get('Engine Size') == 0:
                                 df_processed.at[index, 'Engine Size'] = healed_specs['engine_size']
                                 notes.append(f"Healed missing Engine Size to {healed_specs['engine_size']}L")
@@ -456,19 +458,21 @@ elif admin_mode == "App Dashboard":
                         
                         df_processed.at[index, 'Audit_Trail'] = " | ".join(notes)
 
-                    # --- REVISED: EV ISOLATION LOGIC ---
+                    # --- EV ISOLATION LOGIC ---
                     final_mpg = []
                     annual_costs = []
-                    
-                    # Prepare AI Input
                     ai_in_raw = prepare_ai_input(df_processed, scaler_X)
                     rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1)
                     raw_preds = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in))).flatten()
                     
+                    bulk_data_to_send = []
+                    def clean_float(val):
+                        if val is None or not isinstance(val, (int, float)) or math.isnan(val) or math.isinf(val):
+                            return None
+                        return float(val)
+
                     for i, p in enumerate(raw_preds):
                         row = df_processed.iloc[i]
-                        
-                        # Identify EV based on specs
                         is_ev = (row.get("Cylinders") == 0) or (row.get("Fuel Type") == "Electric") or (row.get("Engine Size") == 0)
                         
                         if is_ev:
@@ -479,14 +483,39 @@ elif admin_mode == "App Dashboard":
                             real_p = apply_hybrid_reality_logic(p, row.get("Model Year", 2024), row.get("Make", "Unknown"), row.get("Vehicle Class", "Mid-Size"), row.get("Fuel Type", "Regular"), row.get("Engine Size", 2.0), row.get("Cylinders", 4), row.get("CO2 Emissions", 200), silent=True)
                             final_mpg.append(real_p)
                             annual_costs.append((15000 / real_p) * 4.50)
+                        
+                        # Prepare data for Vault insertion
+                        fuel_chem = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903}
+                        energy_constant = fuel_chem.get(row.get("Fuel Type"), 8887)
+                        chem_truth = energy_constant / (max(row.get("CO2 Emissions", 200), 1) * 1.609)
+                        mpg_val = final_mpg[-1]
+                        
+                        bulk_data_to_send.append({
+                            "company_id": st.session_state.company_id,
+                            "timestamp": datetime.datetime.now().isoformat(),
+                            "vehicle_make": encrypt_data(str(row.get("Make", "Unknown"))),
+                            "rnn_predicted_mpg": clean_float(mpg_val),
+                            "physics_truth_mpg": clean_float(chem_truth),
+                            "variance_percent": clean_float(abs(mpg_val - chem_truth) / max(chem_truth, 1)) if not pd.isna(mpg_val) else 0,
+                            "was_corrected": 1 if not pd.isna(mpg_val) and (abs(mpg_val - chem_truth) / max(chem_truth, 1)) > 0.12 else 0,
+                            "Annual_Fuel_Cost": clean_float(annual_costs[-1]),
+                            "Efficiency_Rating": str(classify_efficiency(mpg_val))
+                        })
 
                     df_processed["Predicted_MPG"] = final_mpg
                     df_processed["Annual_Fuel_Cost"] = annual_costs
                     df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(classify_efficiency)
                     
-                    # Dashboard Metrics (Excluding EVs)
+                    # --- PERFORMANCE OPTIMIZATION: BATCHED VAULT INSERTION ---
+                    batch_size = 500
+                    total_records = len(bulk_data_to_send)
+                    progress_bar = st.progress(0)
+                    for i in range(0, total_records, batch_size):
+                        batch = bulk_data_to_send[i : i + batch_size]
+                        supabase.table("performance_vault").insert(batch).execute()
+                        progress_bar.progress(min((i + batch_size) / total_records, 1.0))
+
                     df_fuel_only = df_processed[df_processed["Annual_Fuel_Cost"] > 0]
-                    
                     st.info(f"Analysis Complete: {auto_healed_count} records healed, {mismatch_count} mismatches corrected, and {len(df_processed) - len(df_fuel_only)} EVs quarantined.")
                     
                     m1, m2 = st.columns(2)
@@ -500,7 +529,6 @@ elif admin_mode == "App Dashboard":
                     for insight in fleet_insights:
                         st.info(f"{insight}")
 
-                    # Multi-tenant sync
                     log_fleet_session_silent(df_fuel_only["Predicted_MPG"].mean(), len(df_processed), df_fuel_only["Annual_Fuel_Cost"].sum(), st.session_state.company_id, insights=" | ".join(fleet_insights))
                     
                     report_data = create_pdf(df_processed, insights=fleet_insights)
