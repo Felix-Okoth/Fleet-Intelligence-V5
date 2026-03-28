@@ -42,7 +42,7 @@ def decrypt_data(token):
 def auto_heal_specs(make, model):
     """Looks up missing vehicle specs from the master reference table."""
     try:
-        response = supabase.table("vehicle_reference").select("engine_size, cylinders, fuel_type").eq("make", make).eq("model", model).execute()
+        response = supabase.table("vehicle_reference").select("make, engine_size, cylinders, fuel_type").eq("model", model).execute()
         if response.data:
             return response.data[0]
         return None
@@ -90,8 +90,11 @@ def log_fleet_session_silent(avg_mpg, asset_count, fuel_cost, company_id, insigh
 def render_fleet_visuals(df):
     st.subheader("Fleet Performance Analytics")
     
+    # Filter out EVs for visuals to avoid skewed axis
+    df_visual = df[df["Data_Status"] != "EV Flagged"].copy()
+    
     fig_frontier = px.scatter(
-        df, 
+        df_visual, 
         x="Engine Size", 
         y="Predicted_MPG", 
         color="Efficiency_Rating", 
@@ -113,7 +116,7 @@ def render_fleet_visuals(df):
     st.markdown("<br>", unsafe_allow_html=True)
 
     fig_cost = px.bar(
-        df, x="Make", y="Annual_Fuel_Cost", 
+        df_visual, x="Make", y="Annual_Fuel_Cost", 
         color="Efficiency_Rating", title="Annual Fuel Exposure by OEM",
         barmode="group", template="plotly_dark"
     )
@@ -121,34 +124,27 @@ def render_fleet_visuals(df):
 
 def generate_strategic_insights(df):
     insights = []
-    co2_col = "CO2 Emissions" if "CO2 Emissions" in df.columns else ("Emissions" if "Emissions" in df.columns else None)
-    eng_col = "Engine Size" if "Engine Size" in df.columns else None
+    # Only analyze insights for non-EVs to maintain fuel accuracy
+    df_fuel = df[df["Data_Status"] != "EV Flagged"].copy()
     
-    avg_mpg = df["Predicted_MPG"].mean()
-    std_mpg = df["Predicted_MPG"].std()
+    if df_fuel.empty:
+        return ["FLEET ALERT: All uploaded assets are EVs. Energy prediction engine scheduled for release post-April 13th."]
+
+    co2_col = "CO2 Emissions" if "CO2 Emissions" in df_fuel.columns else ("Emissions" if "Emissions" in df_fuel.columns else None)
+    eng_col = "Engine Size" if "Engine Size" in df_fuel.columns else None
+    
+    avg_mpg = df_fuel["Predicted_MPG"].mean()
+    std_mpg = df_fuel["Predicted_MPG"].std()
     
     if eng_col and co2_col:
-        anomalies = df[(df[eng_col] > 4.0) & (df[co2_col] < 150)]
+        anomalies = df_fuel[(df_fuel[eng_col] > 4.0) & (df_fuel[co2_col] < 150)]
         if not anomalies.empty:
             sample_make = anomalies.iloc[0]['Make'] if 'Make' in anomalies.columns else "Unknown"
-            insights.append(f"DATA INTEGRITY: {len(anomalies)} assets (e.g., {sample_make}) show high displacement with suspiciously low emissions. This suggests a data entry gap or sensor error.")
+            insights.append(f"DATA INTEGRITY: {len(anomalies)} assets (e.g., {sample_make}) show high displacement with suspiciously low emissions.")
 
-    outliers = df[df["Predicted_MPG"] < (avg_mpg - (1.5 * std_mpg))]
+    outliers = df_fuel[df_fuel["Predicted_MPG"] < (avg_mpg - (1.5 * std_mpg))]
     if not outliers.empty:
-        insights.append(f"ANOMALY: {len(outliers)} models are statistical outliers for efficiency. If the data is correct, these assets have severe parasitic power loss.")
-
-    poor_tier = df[df["Efficiency_Rating"] == "Poor"]
-    if not poor_tier.empty:
-        current_cost = poor_tier["Annual_Fuel_Cost"].sum()
-        optimized_cost = (4.50 / avg_mpg) * 15000 * len(poor_tier)
-        savings = current_cost - optimized_cost
-        if savings > 0:
-            insights.append(f"LIQUIDITY GAP: Modernizing the 'Poor' tier to meet the fleet average would recover ${savings:,.2f} in annual cash flow.")
-
-    if "Make" in df.columns and not df.empty:
-        if df["Make"].nunique() > 1:
-            oem_variance = df.groupby("Make")["Predicted_MPG"].std().idxmax()
-            insights.append(f"STRATEGIC: {oem_variance} models show the highest performance volatility. Recommend standardized maintenance for this OEM.")
+        insights.append(f"ANOMALY: {len(outliers)} models are statistical outliers for efficiency.")
 
     return insights
 
@@ -164,7 +160,7 @@ def run_dataset_health_check(df):
     c3.metric("Records Found", len(df))
 
     if problem_oem and missing_by_make[problem_oem] > 0:
-        st.error(f"DATA GAP DETECTED: {problem_oem} assets have missing technical specs. The AI is 'guessing' these values, which reduces ROI accuracy.")
+        st.error(f"DATA GAP DETECTED: {problem_oem} assets have missing specs. System will attempt Auto-Heal via reference table.")
     else:
         st.success("Dataset is physically consistent. Proceeding with Neural Inference.")
 
@@ -268,10 +264,14 @@ def create_pdf(df, fig=None, insights=[]):
     
     pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "Strategic Overview:", ln=True)
     pdf.set_font("helvetica", '', 11)
-    avg_mpg = df['Predicted_MPG'].mean()
-    overview_text = (f"The current fleet trajectory indicates a healthy high-efficiency core. "
-                     f"With a calculated fleet average of {avg_mpg:.1f} MPG, the organization "
-                     f"is well-positioned for data-driven optimization.")
+    
+    # PDF context for fuel-based assets only
+    df_fuel = df[df["Data_Status"] != "EV Flagged"]
+    avg_mpg = df_fuel['Predicted_MPG'].mean() if not df_fuel.empty else 0
+    
+    overview_text = (f"Fleet trajectory includes {len(df_fuel)} active combustion assets and "
+                     f"{len(df[df['Data_Status'] == 'EV Flagged'])} advanced electric units. "
+                     f"Fuel average: {avg_mpg:.1f} MPG.")
     pdf.multi_cell(0, 7, safe_str(overview_text))
     pdf.ln(5)
     
@@ -337,6 +337,7 @@ def prepare_ai_input(df, scaler_X):
     return scaler_X.transform(input_df.apply(pd.to_numeric, errors='coerce').fillna(0).values)
 
 def classify_efficiency(mpg):
+    if pd.isna(mpg) or mpg == 0: return "EV - Pending"
     return "Excellent" if mpg > 35 else "Average" if mpg > 20 else "Poor"
 
 # 3. INTERFACE
@@ -383,27 +384,30 @@ elif admin_mode == "App Dashboard":
         c1, c2 = st.columns(2)
         with c1:
             v_make = st.text_input("Vehicle Make", "Toyota")
-            eng = st.number_input("Engine Size (L)", 0.5, 10.0, 2.0, step=0.1)
-            cyl = st.number_input("Cylinders", 2, 16, 4, step=1)
-            fuel_t = st.selectbox("Fuel Type", ["Regular", "Premium", "Diesel", "Ethanol"])
+            eng = st.number_input("Engine Size (L)", 0.0, 10.0, 2.0, step=0.1)
+            cyl = st.number_input("Cylinders", 0, 16, 4, step=1)
+            fuel_t = st.selectbox("Fuel Type", ["Regular", "Premium", "Diesel", "Ethanol", "Electric"])
             v_year = st.number_input("Model Year", 1995, 2026, 2024, step=1)
         with c2:
-            v_class = st.selectbox("Vehicle Class", ["Mid-Size", "Compact", "SUV", "Pickup", "Truck"])
-            v_trans = st.selectbox("Transmission", ["Automatic", "Manual", "CVT"])
-            co2 = st.number_input("CO2 Emissions (g/km)", 50, 600, 200, step=1)
-            city_l = st.number_input("City (L/100km)", 2.0, 30.0, 10.0, step=0.1)
-            hwy_l = st.number_input("Hwy (L/100km)", 2.0, 30.0, 8.0, step=0.1)
+            v_class = st.selectbox("Vehicle Class", ["Mid-Size", "Compact", "SUV", "Pickup", "Truck", "Electric"])
+            v_trans = st.selectbox("Transmission", ["Automatic", "Manual", "CVT", "Direct Drive"])
+            co2 = st.number_input("CO2 Emissions (g/km)", 0, 600, 200, step=1)
+            city_l = st.number_input("City (L/100km)", 0.0, 30.0, 10.0, step=0.1)
+            hwy_l = st.number_input("Hwy (L/100km)", 0.0, 30.0, 8.0, step=0.1)
             comb = (city_l * 0.55) + (hwy_l * 0.45)
         
         if st.button("Generate AI Prediction"):
-            single_row = pd.DataFrame([{"Model Year": v_year, "Make": v_make, "Engine Size": eng, "Cylinders": cyl, "Fuel Type": fuel_t, "Vehicle Class": v_class, "Transmission": v_trans, "CO2 Emissions": co2, "City (L/100km)": city_l, "Hwy (L/100km)": hwy_l, "Comb (L/100km)": comb}])
-            cleaned_df = nlp_translator(single_row)
-            ai_in_raw = prepare_ai_input(cleaned_df, scaler_X)
-            rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1) 
-            raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
-            display_mpg = apply_hybrid_reality_logic(raw_mpg, v_year, v_make, v_class, fuel_t, eng, cyl, co2)
-            st.metric(f"{v_year} Efficiency Score", f"{display_mpg:.2f} MPG")
-            st.success(f"Rating: {classify_efficiency(display_mpg)}")
+            if cyl == 0 or fuel_t == "Electric" or eng == 0:
+                st.warning("Electric Vehicle detected. Predictions are disabled until the April 13th update.")
+            else:
+                single_row = pd.DataFrame([{"Model Year": v_year, "Make": v_make, "Engine Size": eng, "Cylinders": cyl, "Fuel Type": fuel_t, "Vehicle Class": v_class, "Transmission": v_trans, "CO2 Emissions": co2, "City (L/100km)": city_l, "Hwy (L/100km)": hwy_l, "Comb (L/100km)": comb}])
+                cleaned_df = nlp_translator(single_row)
+                ai_in_raw = prepare_ai_input(cleaned_df, scaler_X)
+                rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1) 
+                raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
+                display_mpg = apply_hybrid_reality_logic(raw_mpg, v_year, v_make, v_class, fuel_t, eng, cyl, co2)
+                st.metric(f"{v_year} Efficiency Score", f"{display_mpg:.2f} MPG")
+                st.success(f"Rating: {classify_efficiency(display_mpg)}")
 
     elif mode == "Bulk Fleet Analytics":
         st.header("Enterprise Analytics Engine")
@@ -415,75 +419,80 @@ elif admin_mode == "App Dashboard":
 
             if st.button("Process Intelligence"):
                 with st.spinner("Analyzing Fleet & Securing Vault..."):
-                    # --- AUTO-HEAL LOGIC ---
+                    # --- REVISED: AUTO-HEAL & MISMATCH DETECTION LOGIC ---
+                    df_processed['Data_Status'] = "Verified"
+                    df_processed['Audit_Trail'] = ""
                     auto_healed_count = 0
-                    processed_records = len(df_processed)
-
+                    mismatch_count = 0
+                    
                     for index, row in df_processed.iterrows():
-                        # Using .get() for safety and checking for nulls in critical specs
-                        if pd.isna(row.get('Engine Size')) or pd.isna(row.get('Cylinders')):
-                            healed_specs = auto_heal_specs(row.get('Make'), row.get('Model'))
-                            if healed_specs:
+                        notes = []
+                        current_make = str(row.get('Make'))
+                        current_model = str(row.get('Model'))
+                        
+                        # Fetch ground truth from Supabase
+                        healed_specs = auto_heal_specs(current_make, current_model)
+                        
+                        if healed_specs:
+                            # 1. Catch Mismatches (Input Make vs Reference Make)
+                            ref_make = healed_specs['make']
+                            if current_make.lower() != ref_make.lower():
+                                df_processed.at[index, 'Make'] = ref_make
+                                notes.append(f"Mismatch: Corrected Make to {ref_make}")
+                                mismatch_count += 1
+                                df_processed.at[index, 'Data_Status'] = "Repaired"
+                            
+                            # 2. Heal Missing Specs
+                            if pd.isna(row.get('Engine Size')) or row.get('Engine Size') == 0:
                                 df_processed.at[index, 'Engine Size'] = healed_specs['engine_size']
-                                df_processed.at[index, 'Cylinders'] = healed_specs['cylinders']
-                                df_processed.at[index, 'Fuel Type'] = healed_specs['fuel_type']
+                                notes.append(f"Healed missing Engine Size to {healed_specs['engine_size']}L")
                                 auto_healed_count += 1
+                                df_processed.at[index, 'Data_Status'] = "Repaired"
+                                
+                            if pd.isna(row.get('Cylinders')):
+                                df_processed.at[index, 'Cylinders'] = healed_specs['cylinders']
+                                notes.append(f"Healed missing Cylinders")
+                                df_processed.at[index, 'Data_Status'] = "Repaired"
+                        
+                        df_processed.at[index, 'Audit_Trail'] = " | ".join(notes)
+
+                    # --- REVISED: EV ISOLATION LOGIC ---
+                    final_mpg = []
+                    annual_costs = []
                     
-                    if auto_healed_count > 0:
-                        st.info(f"**Fleet Intel Note:** Processing {processed_records} records... {auto_healed_count} records were auto-healed using the Fleet Reference database.")
-                    
-                    # Prepare AI Input after healing
+                    # Prepare AI Input
                     ai_in_raw = prepare_ai_input(df_processed, scaler_X)
                     rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1)
                     raw_preds = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in))).flatten()
                     
-                    final_mpg = []
-                    
                     for i, p in enumerate(raw_preds):
-                        row = df_processed.iloc[i] 
-                        real_p = apply_hybrid_reality_logic(p, row.get("Model Year", 2024), row.get("Make", "Unknown"), row.get("Vehicle Class", "Mid-Size"), row.get("Fuel Type", "Regular"), row.get("Engine Size", 2.0), row.get("Cylinders", 4), row.get("CO2 Emissions", 200), silent=True)
-                        final_mpg.append(real_p)
+                        row = df_processed.iloc[i]
+                        
+                        # Identify EV based on specs
+                        is_ev = (row.get("Cylinders") == 0) or (row.get("Fuel Type") == "Electric") or (row.get("Engine Size") == 0)
+                        
+                        if is_ev:
+                            final_mpg.append(np.nan)
+                            annual_costs.append(0.0)
+                            df_processed.at[i, 'Data_Status'] = "EV Flagged"
+                        else:
+                            real_p = apply_hybrid_reality_logic(p, row.get("Model Year", 2024), row.get("Make", "Unknown"), row.get("Vehicle Class", "Mid-Size"), row.get("Fuel Type", "Regular"), row.get("Engine Size", 2.0), row.get("Cylinders", 4), row.get("CO2 Emissions", 200), silent=True)
+                            final_mpg.append(real_p)
+                            annual_costs.append((15000 / real_p) * 4.50)
 
                     df_processed["Predicted_MPG"] = final_mpg
-                    df_processed["Annual_Fuel_Cost"] = (15000 / df_processed["Predicted_MPG"]) * 4.50
+                    df_processed["Annual_Fuel_Cost"] = annual_costs
                     df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(classify_efficiency)
                     
-                    # Prepare data for insertion (using current df_processed columns)
-                    # Mapping local names to Supabase column names
-                    bulk_data_to_send = []
-
-                    # Helper function to ensure JSON compliance
-                    def clean_float(val):
-                        if val is None or not isinstance(val, (int, float)) or math.isnan(val) or math.isinf(val):
-                            return None
-                        return float(val)
-
-                    for _, row in df_processed.iterrows():
-                        fuel_chem = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903}
-                        energy_constant = fuel_chem.get(row.get("Fuel Type"), 8887)
-                        chem_truth = energy_constant / (max(row.get("CO2 Emissions", 200), 1) * 1.609)
-                        
-                        bulk_data_to_send.append({
-                            "company_id": st.session_state.company_id,
-                            "timestamp": datetime.datetime.now().isoformat(),
-                            "vehicle_make": encrypt_data(str(row.get("Make", "Unknown"))),
-                            "rnn_predicted_mpg": clean_float(row["Predicted_MPG"]),
-                            "physics_truth_mpg": clean_float(chem_truth),
-                            "variance_percent": clean_float(abs(row["Predicted_MPG"] - chem_truth) / max(chem_truth, 1)),
-                            "was_corrected": 1 if (abs(row["Predicted_MPG"] - chem_truth) / max(chem_truth, 1)) > 0.12 else 0,
-                            "Annual_Fuel_Cost": clean_float(row["Annual_Fuel_Cost"]),
-                            "Efficiency_Rating": str(row["Efficiency_Rating"])
-                        })
-
-                    try:
-                        supabase.table("performance_vault").insert(bulk_data_to_send).execute()
-                        st.success("Data successfully synced to Supabase!")
-                    except Exception as e:
-                        st.error(f"Supabase rejected the data. Error: {e}")
+                    # Dashboard Metrics (Excluding EVs)
+                    df_fuel_only = df_processed[df_processed["Annual_Fuel_Cost"] > 0]
+                    
+                    st.info(f"Analysis Complete: {auto_healed_count} records healed, {mismatch_count} mismatches corrected, and {len(df_processed) - len(df_fuel_only)} EVs quarantined.")
                     
                     m1, m2 = st.columns(2)
-                    m1.metric("Total Fleet Spend", f"${df_processed['Annual_Fuel_Cost'].sum():,.0f}")
-                    m2.metric("Avg Fleet MPG", f"{df_processed['Predicted_MPG'].mean():.1f}")
+                    m1.metric("Total Fleet Fuel Spend", f"${df_fuel_only['Annual_Fuel_Cost'].sum():,.0f}")
+                    m2.metric("Avg Fleet MPG (Fuel)", f"{df_fuel_only['Predicted_MPG'].mean():.1f}")
+                    
                     st.dataframe(df_processed)
                     render_fleet_visuals(df_processed)
                     
@@ -491,7 +500,8 @@ elif admin_mode == "App Dashboard":
                     for insight in fleet_insights:
                         st.info(f"{insight}")
 
-                    log_fleet_session_silent(df_processed["Predicted_MPG"].mean(), len(df_processed), df_processed["Annual_Fuel_Cost"].sum(), st.session_state.company_id, insights=" | ".join(fleet_insights))
+                    # Multi-tenant sync
+                    log_fleet_session_silent(df_fuel_only["Predicted_MPG"].mean(), len(df_processed), df_fuel_only["Annual_Fuel_Cost"].sum(), st.session_state.company_id, insights=" | ".join(fleet_insights))
                     
                     report_data = create_pdf(df_processed, insights=fleet_insights)
                     st.download_button(label="Download Executive Strategy Report (PDF)", data=report_data, file_name="Fleet_Strategy_Report.pdf", mime="application/pdf")
