@@ -20,6 +20,9 @@ url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
 
+# Define East African Time (UTC+3)
+EAT = datetime.timezone(datetime.timedelta(hours=3))
+
 def handle_secrets():
     # UPDATED: No more random fallback to ensure data consistency
     try:
@@ -56,7 +59,7 @@ def log_performance_metric_silent(make, rnn_mpg, physics_mpg, variance, company_
     
     data = {
         "company_id": company_id,
-        "timestamp": datetime.datetime.now().isoformat(),
+        "timestamp": datetime.datetime.now(EAT).isoformat(),
         "vehicle_make": enc_make,
         "rnn_predicted_mpg": float(rnn_mpg),
         "physics_truth_mpg": float(physics_mpg),
@@ -75,7 +78,7 @@ def log_performance_metric_silent(make, rnn_mpg, physics_mpg, variance, company_
 def log_fleet_session_silent(avg_mpg, asset_count, fuel_cost, company_id, insights=""):
     data = {
         "company_id": company_id,
-        "timestamp": datetime.datetime.now().isoformat(),
+        "timestamp": datetime.datetime.now(EAT).isoformat(),
         "fleet_avg_mpg": float(avg_mpg),
         "total_assets": int(asset_count),
         "total_fuel_cost": float(fuel_cost),
@@ -297,7 +300,7 @@ def create_pdf(df, fig=None, insights=[]):
     pdf.cell(0, 20, get_dynamic_text("title"), ln=True, align='C')
     pdf.set_font("helvetica", '', 10)
     pdf.cell(0, 5, f"REF: {random.randint(1000,9999)} | AUTH: {st.session_state.company_id[:8]}", ln=True, align='C')
-    pdf.cell(0, 5, f"GENERATED: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True, align='C')
+    pdf.cell(0, 5, f"GENERATED: {datetime.datetime.now(EAT).strftime('%Y-%m-%d %H:%M')}", ln=True, align='C')
     
     pdf.set_text_color(0, 0, 0); pdf.ln(20)
     
@@ -540,7 +543,7 @@ elif admin_mode == "App Dashboard":
                         
                         bulk_data_to_send.append({
                             "company_id": st.session_state.company_id,
-                            "timestamp": datetime.datetime.now().isoformat(),
+                            "timestamp": datetime.datetime.now(EAT).isoformat(),
                             "vehicle_make": encrypt_data(str(row.get("Make", "Unknown"))),
                             "rnn_predicted_mpg": clean_float(mpg_val),
                             "physics_truth_mpg": clean_float(chem_truth),
