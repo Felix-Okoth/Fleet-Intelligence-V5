@@ -146,6 +146,12 @@ def generate_strategic_insights(df):
     if not outliers.empty:
         insights.append(f"ANOMALY: {len(outliers)} models are statistical outliers for efficiency.")
 
+    # --- NEW: SOCIAL PILLAR INSIGHT ---
+    if co2_col:
+        high_emissions_count = len(df_fuel[df_fuel[co2_col] > 300])
+        if high_emissions_count > 0:
+            insights.append(f"SOCIAL RESPONSIBILITY: {high_emissions_count} assets exceed urban air quality recommendations. Prioritize these for non-urban routes.")
+
     return insights
 
 def run_dataset_health_check(df):
@@ -244,68 +250,110 @@ def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size
         final_mpg = (rnn_mpg * 0.15) + (chemical_truth_mpg * 0.85)
     return round(min(final_mpg, max_physical_cap), 2)
 
+# --- NEW: VERSATILITY VAULT ---
+def get_dynamic_text(category):
+    vaults = {
+        "title": ["FLEET STRATEGY & ESG ANALYTICS", "EXECUTIVE ASSET INTELLIGENCE REPORT", "CORPORATE EFFICIENCY AUDIT"],
+        "overview_header": ["Strategic Overview:", "Operational Snapshot:", "Fleet Intelligence Summary:"],
+        "insight_intro": ["AI-Driven Strategic Insights:", "Neural Pattern Observations:", "Automated Efficiency Findings:"],
+        "action_call": [
+            "Immediate optimization of 'Poor' rated assets could reduce annual overhead by",
+            "Targeted maintenance on underperforming units represents a potential savings of",
+            "Financial exposure reduction via fuel optimization is estimated at"
+        ]
+    }
+    return random.choice(vaults.get(category, ["Report Section"]))
+
 def create_pdf(df, fig=None, insights=[]):
     def safe_str(text):
         if text is None: return "N/A"
         try:
             clean = str(text).encode('ascii', 'ignore').decode('ascii')
             return clean.replace('\u2013', '-').replace('\u2014', '-').replace('\u2019', "'")
-        except:
-            return "Data Formatting Error"
+        except: return "Data Error"
+
+    # 1. ESG & Financial Logic
+    df_fuel = df[df["Data_Status"] != "EV Flagged"].copy()
+    avg_mpg = df_fuel['Predicted_MPG'].mean() if not df_fuel.empty else 0
+    poor_assets = df_fuel[df_fuel['Efficiency_Rating'] == 'Poor']
+    savings = 0
+    if not poor_assets.empty and avg_mpg > 0:
+        current_cost = poor_assets['Annual_Fuel_Cost'].sum()
+        optimized_cost = (len(poor_assets) * 15000 / avg_mpg) * 4.50
+        savings = max(0, current_cost - optimized_cost)
+
+    # Environmental: Carbon Tonnage
+    df_fuel['Annual_Tons_CO2'] = (df_fuel['CO2 Emissions'] * 1.609 * 15000) / 1_000_000
+    total_fleet_co2 = df_fuel['Annual_Tons_CO2'].sum()
+    ev_ratio = len(df[df['Data_Status'] == 'EV Flagged']) / len(df)
+    esg_score = "B" if ev_ratio > 0.2 else "C" if ev_ratio > 0.05 else "D"
 
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_fill_color(25, 25, 25); pdf.rect(0, 0, 210, 40, 'F')
-    pdf.set_text_color(255, 255, 255); pdf.set_font("helvetica", 'B', 22)
-    pdf.cell(0, 20, "FLEET STRATEGY & ESG ANALYTICS", ln=True, align='C')
-    pdf.set_font("helvetica", '', 10)
-    pdf.cell(0, 5, f"REF: {random.randint(1000,9999)} | GENERATED: {datetime.datetime.now().strftime('%Y-%m-%d')}", ln=True, align='C')
-    pdf.set_text_color(0, 0, 0); pdf.ln(15)
     
-    pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, "Strategic Overview:", ln=True)
+    # Header Styling
+    pdf.set_fill_color(30, 41, 59); pdf.rect(0, 0, 210, 45, 'F')
+    pdf.set_text_color(255, 255, 255); pdf.set_font("helvetica", 'B', 22)
+    pdf.cell(0, 20, get_dynamic_text("title"), ln=True, align='C')
+    pdf.set_font("helvetica", '', 10)
+    pdf.cell(0, 5, f"REF: {random.randint(1000,9999)} | AUTH: {st.session_state.company_id[:8]}", ln=True, align='C')
+    pdf.cell(0, 5, f"GENERATED: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True, align='C')
+    
+    pdf.set_text_color(0, 0, 0); pdf.ln(20)
+    
+    # Dynamic Strategic Overview
+    pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, get_dynamic_text("overview_header"), ln=True)
     pdf.set_font("helvetica", '', 11)
     
-    # PDF context for fuel-based assets only
-    df_fuel = df[df["Data_Status"] != "EV Flagged"]
-    avg_mpg = df_fuel['Predicted_MPG'].mean() if not df_fuel.empty else 0
+    overview_text = (f"The fleet contains {len(df_fuel)} combustion and {len(df[df['Data_Status'] == 'EV Flagged'])} electric units. "
+                     f"Avg performance is {avg_mpg:.1f} MPG. {get_dynamic_text('action_call')} ${savings:,.2f} annually. "
+                     f"Current fleet ESG Rating: {esg_score}.")
+    pdf.multi_cell(0, 7, safe_str(overview_text)); pdf.ln(5)
+
+    # Environmental Impact Section
+    pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "Environmental & Carbon Footprint:", ln=True)
+    pdf.set_font("helvetica", '', 11)
+    env_text = (f"Total annual emissions: {total_fleet_co2:.1f} metric tons of CO2. "
+                f"Optimizing outliers would offset ~{total_fleet_co2 * 0.12:.1f} tons (approx. {int(total_fleet_co2*3)} trees).")
+    pdf.multi_cell(0, 7, safe_str(env_text)); pdf.ln(5)
     
-    overview_text = (f"Fleet trajectory includes {len(df_fuel)} active combustion assets and "
-                     f"{len(df[df['Data_Status'] == 'EV Flagged'])} advanced electric units. "
-                     f"Fuel average: {avg_mpg:.1f} MPG.")
-    pdf.multi_cell(0, 7, safe_str(overview_text))
-    pdf.ln(5)
-    
+    # Insights Section
     if insights:
-        pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "AI-Driven Strategic Insights:", ln=True)
+        pdf.set_fill_color(245, 247, 250); pdf.set_font("helvetica", 'B', 12)
+        pdf.cell(0, 10, f"  {get_dynamic_text('insight_intro')}", ln=True, fill=True)
         pdf.set_font("helvetica", '', 10)
         for insight in insights:
-            pdf.multi_cell(190, 6, f"- {safe_str(insight)}")
-        pdf.ln(5)
+            pdf.set_x(15); pdf.multi_cell(180, 6, f"> {safe_str(insight)}")
+        pdf.ln(8)
 
+    # Efficiency Distribution
     dist = df['Efficiency_Rating'].value_counts().to_dict()
-    pdf.set_font("helvetica", 'B', 11); pdf.set_fill_color(242, 242, 242)
-    pdf.cell(63, 15, f"EXCELLENT: {dist.get('Excellent', 0)}", border=1, align='C', fill=True)
-    pdf.cell(63, 15, f"AVERAGE: {dist.get('Average', 0)}", border=1, align='C', fill=True)
-    pdf.cell(63, 15, f"POOR: {dist.get('Poor', 0)}", border=1, ln=True, align='C', fill=True)
-    pdf.ln(10)
+    pdf.set_font("helvetica", 'B', 11); pdf.set_fill_color(0, 198, 255); pdf.set_text_color(255, 255, 255)
+    pdf.cell(63, 12, f"EXCELLENT: {dist.get('Excellent', 0)}", align='C', fill=True)
+    pdf.set_fill_color(255, 75, 75)
+    pdf.cell(63, 12, f"AVERAGE: {dist.get('Average', 0)}", align='C', fill=True)
+    pdf.set_fill_color(99, 110, 250)
+    pdf.cell(63, 12, f"POOR: {dist.get('Poor', 0)}", ln=True, align='C', fill=True)
     
-    pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "Critical Asset Highlights", ln=True)
-    pdf.set_font("helvetica", 'B', 10); pdf.set_fill_color(0, 114, 255); pdf.set_text_color(255, 255, 255)
+    pdf.ln(10); pdf.set_text_color(0, 0, 0)
+    
+    # Asset Table
+    pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "High-Impact Asset Audit", ln=True)
     headers = ["Manufacturer", "Model", "Emissions", "AI-MPG", "Status"]
     widths = [40, 40, 30, 30, 50]
+    pdf.set_font("helvetica", 'B', 10); pdf.set_fill_color(230, 230, 230)
     for i, h in enumerate(headers): pdf.cell(widths[i], 10, h, border=1, align='C', fill=True)
-    pdf.ln(); pdf.set_text_color(0, 0, 0); pdf.set_font("helvetica", '', 10)
+    pdf.ln(); pdf.set_font("helvetica", '', 10)
     
-    for _, row in df.head(10).iterrows():
-        pdf.cell(widths[0], 10, safe_str(row.get('Make', 'N/A')), border=1, align='C')
-        pdf.cell(widths[1], 10, safe_str(row.get('Model', 'N/A')), border=1, align='C')
-        pdf.cell(widths[2], 10, str(row.get('CO2 Emissions', 'N/A')), border=1, align='C')
-        pdf.cell(widths[3], 10, f"{row.get('Predicted_MPG', 0):.1f}", border=1, align='C')
-        pdf.cell(widths[4], 10, safe_str(row.get('Efficiency_Rating', 'N/A')), border=1, align='C')
+    for _, row in df.head(15).iterrows():
+        pdf.cell(widths[0], 9, safe_str(row.get('Make', 'N/A')), border=1)
+        pdf.cell(widths[1], 9, safe_str(row.get('Model', 'N/A')), border=1)
+        pdf.cell(widths[2], 9, str(row.get('CO2 Emissions', 'N/A')), border=1, align='C')
+        pdf.cell(widths[3], 9, f"{row.get('Predicted_MPG', 0):.1f}", border=1, align='C')
+        pdf.cell(widths[4], 9, safe_str(row.get('Efficiency_Rating', 'N/A')), border=1, align='C')
         pdf.ln()
 
-    pdf_out = pdf.output()
-    return bytes(pdf_out) if not isinstance(pdf_out, str) else pdf_out.encode('latin-1', 'replace')
+    return bytes(pdf.output())
 
 def nlp_translator(df):
     df.columns = [c.title().replace('_', ' ').strip() for c in df.columns]
