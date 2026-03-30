@@ -24,7 +24,6 @@ supabase: Client = create_client(url, key)
 EAT = datetime.timezone(datetime.timedelta(hours=3))
 
 def handle_secrets():
-    # UPDATED: No more random fallback to ensure data consistency
     try:
         enc_key = st.secrets["ENCRYPTION_KEY"]
         return Fernet(enc_key.encode())
@@ -88,10 +87,17 @@ def log_fleet_session_silent(avg_mpg, asset_count, fuel_cost, company_id, insigh
 
 # ===========================================
 # ANALYTICS & INSIGHTS
-# ===========================================              
+# ===========================================             
 
 def render_fleet_visuals(df):
     st.subheader("Fleet Performance Analytics")
+    
+    # SNIPPET UPDATE: Unified Color Palette for Consistency
+    brand_colors = {
+        "Excellent": "#00ffcc",  # Teal
+        "Average": "#636efa",    # Blue
+        "Poor": "#ff4b4b"        # Red
+    }
     
     # Filter out EVs for visuals to avoid skewed axis
     df_visual = df[df["Data_Status"] != "EV Flagged"].copy()
@@ -103,15 +109,11 @@ def render_fleet_visuals(df):
         color="Efficiency_Rating", 
         hover_name="Model", 
         title="Efficiency Frontier: Displacement vs. MPG",
-        color_discrete_map={
-            "Excellent": "#00ffcc", 
-            "Average": "#ff4b4b", 
-            "Poor": "#636efa"
-        },
+        color_discrete_map=brand_colors,
         template="plotly_dark"
     )
     
-    fig_frontier.update_traces(marker=dict(size=6, opacity=0.8))
+    fig_frontier.update_traces(marker=dict(size=8, opacity=0.8))
     st.plotly_chart(fig_frontier, use_container_width=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -121,13 +123,14 @@ def render_fleet_visuals(df):
     fig_cost = px.bar(
         df_visual, x="Make", y="Annual_Fuel_Cost", 
         color="Efficiency_Rating", title="Annual Fuel Exposure by OEM",
-        barmode="group", template="plotly_dark"
+        barmode="group", 
+        color_discrete_map=brand_colors,
+        template="plotly_dark"
     )
     st.plotly_chart(fig_cost, use_container_width=True)
 
 def generate_strategic_insights(df):
     insights = []
-    # Only analyze insights for non-EVs to maintain fuel accuracy
     df_fuel = df[df["Data_Status"] != "EV Flagged"].copy()
     
     if df_fuel.empty:
@@ -149,7 +152,6 @@ def generate_strategic_insights(df):
     if not outliers.empty:
         insights.append(f"ANOMALY: {len(outliers)} models are statistical outliers for efficiency.")
 
-    # --- NEW: SOCIAL PILLAR INSIGHT ---
     if co2_col:
         high_emissions_count = len(df_fuel[df_fuel[co2_col] > 300])
         if high_emissions_count > 0:
@@ -237,7 +239,7 @@ model, scaler_X, scaler_y = load_resources()
 def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size, cylinders, co2, silent=False):
     make_bias = {"Toyota": 0.95, "Honda": 0.95, "Ford": 1.10, "Chevrolet": 1.10}
     m_factor = make_bias.get(make, 1.0)
-    fuel_chem = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903}
+    fuel_chem = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903, "Natural Gas": 6000}
     energy_constant = fuel_chem.get(fuel_t, 8887)
     chemical_truth_mpg = energy_constant / (max(co2, 1) * 1.609)
     friction_loss = (engine_size * 0.12) + (cylinders * 0.06)
@@ -275,7 +277,6 @@ def create_pdf(df, fig=None, insights=[]):
             return clean.replace('\u2013', '-').replace('\u2014', '-').replace('\u2019', "'")
         except: return "Data Error"
 
-    # 1. ESG & Financial Logic
     df_fuel = df[df["Data_Status"] != "EV Flagged"].copy()
     avg_mpg = df_fuel['Predicted_MPG'].mean() if not df_fuel.empty else 0
     poor_assets = df_fuel[df_fuel['Efficiency_Rating'] == 'Poor']
@@ -285,7 +286,6 @@ def create_pdf(df, fig=None, insights=[]):
         optimized_cost = (len(poor_assets) * 15000 / avg_mpg) * 4.50
         savings = max(0, current_cost - optimized_cost)
 
-    # Environmental: Carbon Tonnage
     df_fuel['Annual_Tons_CO2'] = (df_fuel['CO2 Emissions'] * 1.609 * 15000) / 1_000_000
     total_fleet_co2 = df_fuel['Annual_Tons_CO2'].sum()
     ev_ratio = len(df[df['Data_Status'] == 'EV Flagged']) / len(df)
@@ -294,7 +294,6 @@ def create_pdf(df, fig=None, insights=[]):
     pdf = FPDF()
     pdf.add_page()
     
-    # Header Styling
     pdf.set_fill_color(30, 41, 59); pdf.rect(0, 0, 210, 45, 'F')
     pdf.set_text_color(255, 255, 255); pdf.set_font("helvetica", 'B', 22)
     pdf.cell(0, 20, get_dynamic_text("title"), ln=True, align='C')
@@ -304,7 +303,6 @@ def create_pdf(df, fig=None, insights=[]):
     
     pdf.set_text_color(0, 0, 0); pdf.ln(20)
     
-    # Dynamic Strategic Overview
     pdf.set_font("helvetica", 'B', 14); pdf.cell(0, 10, get_dynamic_text("overview_header"), ln=True)
     pdf.set_font("helvetica", '', 11)
     
@@ -313,14 +311,12 @@ def create_pdf(df, fig=None, insights=[]):
                      f"Current fleet ESG Rating: {esg_score}.")
     pdf.multi_cell(0, 7, safe_str(overview_text)); pdf.ln(5)
 
-    # Environmental Impact Section
     pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "Environmental & Carbon Footprint:", ln=True)
     pdf.set_font("helvetica", '', 11)
     env_text = (f"Total annual emissions: {total_fleet_co2:.1f} metric tons of CO2. "
                 f"Optimizing outliers would offset ~{total_fleet_co2 * 0.12:.1f} tons (approx. {int(total_fleet_co2*3)} trees).")
     pdf.multi_cell(0, 7, safe_str(env_text)); pdf.ln(5)
     
-    # Insights Section
     if insights:
         pdf.set_fill_color(245, 247, 250); pdf.set_font("helvetica", 'B', 12)
         pdf.cell(0, 10, f"  {get_dynamic_text('insight_intro')}", ln=True, fill=True)
@@ -329,18 +325,16 @@ def create_pdf(df, fig=None, insights=[]):
             pdf.set_x(15); pdf.multi_cell(180, 6, f"> {safe_str(insight)}")
         pdf.ln(8)
 
-    # Efficiency Distribution
     dist = df['Efficiency_Rating'].value_counts().to_dict()
     pdf.set_font("helvetica", 'B', 11); pdf.set_fill_color(0, 198, 255); pdf.set_text_color(255, 255, 255)
     pdf.cell(63, 12, f"EXCELLENT: {dist.get('Excellent', 0)}", align='C', fill=True)
-    pdf.set_fill_color(255, 75, 75)
-    pdf.cell(63, 12, f"AVERAGE: {dist.get('Average', 0)}", align='C', fill=True)
     pdf.set_fill_color(99, 110, 250)
+    pdf.cell(63, 12, f"AVERAGE: {dist.get('Average', 0)}", align='C', fill=True)
+    pdf.set_fill_color(255, 75, 75)
     pdf.cell(63, 12, f"POOR: {dist.get('Poor', 0)}", ln=True, align='C', fill=True)
     
     pdf.ln(10); pdf.set_text_color(0, 0, 0)
     
-    # Asset Table
     pdf.set_font("helvetica", 'B', 12); pdf.cell(0, 10, "High-Impact Asset Audit", ln=True)
     headers = ["Manufacturer", "Model", "Emissions", "AI-MPG", "Status"]
     widths = [40, 40, 30, 30, 50]
@@ -372,12 +366,17 @@ def nlp_translator(df):
     df = df.rename(columns=mapping)
     
     if "Transmission" in df.columns:
-        # Internal: Store raw string, but set numeric codes for AI model processing
-        df["Trans_Clean"] = df["Transmission"].astype(str).str.upper().str.strip()
-        df["Transmission"] = df["Trans_Clean"].apply(lambda x: 2 if "CVT" in x else 1 if "M" in x else 0)
+        # SNIPPET UPDATE: Robust Encoding to prevent "All Automatic" error
+        def encode_trans(x):
+            val = str(x).upper()
+            if any(k in val for k in ["CVT", "CONTINUOUS"]): return 2
+            if any(k in val for k in ["M", "MANUAL", "STICK"]): return 1
+            return 0 # Automatic/Direct Drive
+        
+        df["Trans_Clean"] = df["Transmission"].astype(str) # Preserve original input
+        df["Transmission"] = df["Trans_Clean"].apply(encode_trans)
         
     if "Fuel Type" in df.columns:
-        # Internal: Convert to numeric for AI model processing
         df["Fuel Type"] = df["Fuel Type"].astype(str).str.title().str.strip().map(lambda x: FUEL_MAP.get(x, 1))
         
     return df
@@ -439,7 +438,7 @@ elif admin_mode == "App Dashboard":
             v_make = st.text_input("Vehicle Make", "Toyota")
             eng = st.number_input("Engine Size (L)", 0.0, 10.0, 2.0, step=0.1)
             cyl = st.number_input("Cylinders", 0, 16, 4, step=1)
-            fuel_t = st.selectbox("Fuel Type", ["Regular", "Premium", "Diesel", "Ethanol", "Electric"])
+            fuel_t = st.selectbox("Fuel Type", ["Regular", "Premium", "Diesel", "Ethanol", "Natural Gas", "Electric"])
             v_year = st.number_input("Model Year", 1995, 2026, 2024, step=1)
         with c2:
             v_class = st.selectbox("Vehicle Class", ["Mid-Size", "Compact", "SUV", "Pickup", "Truck", "Electric"])
@@ -472,7 +471,6 @@ elif admin_mode == "App Dashboard":
 
             if st.button("Process Intelligence"):
                 with st.spinner("Analyzing Fleet & Securing Vault..."):
-                    # --- PERFORMANCE OPTIMIZATION: BULK FETCH REFERENCE DATA ---
                     unique_models = df_processed['Model'].unique().tolist()
                     ref_response = supabase.table("vehicle_reference").select("make, model, engine_size, cylinders, fuel_type").in_("model", unique_models).execute()
                     ref_lookup = {item['model']: item for item in ref_response.data}
@@ -486,8 +484,6 @@ elif admin_mode == "App Dashboard":
                         notes = []
                         current_make = str(row.get('Make'))
                         current_model = str(row.get('Model'))
-                        
-                        # Local lookup (Instant) instead of network call
                         healed_specs = ref_lookup.get(current_model)
                         
                         if healed_specs:
@@ -511,7 +507,6 @@ elif admin_mode == "App Dashboard":
                         
                         df_processed.at[index, 'Audit_Trail'] = " | ".join(notes)
 
-                    # --- EV ISOLATION LOGIC ---
                     final_mpg = []
                     annual_costs = []
                     ai_in_raw = prepare_ai_input(df_processed, scaler_X)
@@ -533,13 +528,16 @@ elif admin_mode == "App Dashboard":
                             annual_costs.append(0.0)
                             df_processed.at[i, 'Data_Status'] = "EV Flagged"
                         else:
-                            real_p = apply_hybrid_reality_logic(p, row.get("Model Year", 2024), row.get("Make", "Unknown"), row.get("Vehicle Class", "Mid-Size"), row.get("Fuel Type", "Regular"), row.get("Engine Size", 2.0), row.get("Cylinders", 4), row.get("CO2 Emissions", 200), silent=True)
+                            # Re-map numerical code to string for the logic layer
+                            f_map_rev = {1: "Regular", 2: "Diesel", 3: "Ethanol", 4: "Natural Gas", 0: "Premium"}
+                            fuel_str = f_map_rev.get(row.get("Fuel Type"), "Regular")
+                            
+                            real_p = apply_hybrid_reality_logic(p, row.get("Model Year", 2024), row.get("Make", "Unknown"), row.get("Vehicle Class", "Mid-Size"), fuel_str, row.get("Engine Size", 2.0), row.get("Cylinders", 4), row.get("CO2 Emissions", 200), silent=True)
                             final_mpg.append(real_p)
                             annual_costs.append((15000 / real_p) * 4.50)
                         
-                        # Prepare data for Vault insertion
-                        fuel_chem = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903}
-                        energy_constant = fuel_chem.get(row.get("Fuel Type"), 8887)
+                        fuel_chem_val = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903, "Natural Gas": 6000}
+                        energy_constant = fuel_chem_val.get(row.get("Fuel Type"), 8887)
                         chem_truth = energy_constant / (max(row.get("CO2 Emissions", 200), 1) * 1.609)
                         mpg_val = final_mpg[-1]
                         
@@ -556,15 +554,12 @@ elif admin_mode == "App Dashboard":
                             "Annual_Fuel_Cost": clean_float(annual_costs[-1]),
                             "Efficiency_Rating": str(classify_efficiency(mpg_val))
                         })
-                        
-                        # Apply local flag for display without affecting ML logic
                         df_processed.at[i, 'was_corrected'] = was_corrected
 
                     df_processed["Predicted_MPG"] = final_mpg
                     df_processed["Annual_Fuel_Cost"] = annual_costs
                     df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(classify_efficiency)
                     
-                    # --- PERFORMANCE OPTIMIZATION: BATCHED VAULT INSERTION ---
                     batch_size = 500
                     total_records = len(bulk_data_to_send)
                     progress_bar = st.progress(0)
@@ -580,27 +575,25 @@ elif admin_mode == "App Dashboard":
                     m1.metric("Total Fleet Fuel Spend", f"${df_fuel_only['Annual_Fuel_Cost'].sum():,.0f}")
                     m2.metric("Avg Fleet MPG (Fuel)", f"{df_fuel_only['Predicted_MPG'].mean():.1f}")
                     
-                    # ==========================================
-                    # TRANSPARENT OUTPUT LAYER (PRE-DISPLAY)
-                    # ==========================================
-                    # 1. Map Fuel Numerals back to Readable Words for the UI
-                    fuel_lookup = {1: "Petrol", 2: "Diesel", 3: "Ethanol/Hybrid", 4: "Natural Gas", 0: "Electric (EV)"}
-                    df_processed['Fuel Type'] = df_processed['Fuel Type'].map(lambda x: fuel_lookup.get(x, "Other"))
+                    # SNIPPET UPDATE: Accurate Human-Readable Mapping
+                    fuel_ui_map = {1: "Petrol", 2: "Diesel", 3: "Ethanol/Hybrid", 4: "Natural Gas", 0: "Premium/Electric"}
+                    df_processed['Fuel Type'] = df_processed['Fuel Type'].map(lambda x: fuel_ui_map.get(x, "Other"))
 
-                    # 2. Map Transmission Codes to Clean Labels for the UI
-                    def decode_trans(x):
-                        if x == 2: return "CVT"
-                        if x == 1: return "Manual"
+                    # Robust Transmission Decoding
+                    def smart_decode_trans(row):
+                        code = row['Transmission']
+                        original = str(row['Trans_Clean']).upper()
+                        if code == 2: return "CVT"
+                        if code == 1: return "Manual"
+                        if "DIRECT" in original or "SINGLE" in original: return "Direct Drive"
                         return "Automatic"
 
-                    df_processed['Transmission'] = df_processed['Transmission'].apply(decode_trans)
+                    df_processed['Transmission'] = df_processed.apply(smart_decode_trans, axis=1)
 
-                    # 3. Flag Auto-Healed Data Source
                     df_processed['Data Source'] = df_processed['was_corrected'].apply(
                         lambda x: "System Healed" if x == 1 else "Original OEM"
                     )
 
-                    # Drop internal helper columns before display
                     cols_to_drop = ['Trans_Clean', 'was_corrected']
                     st.dataframe(df_processed.drop(columns=[c for c in cols_to_drop if c in df_processed.columns]), use_container_width=True)
                     
