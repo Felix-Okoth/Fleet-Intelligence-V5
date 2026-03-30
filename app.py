@@ -372,10 +372,12 @@ def nlp_translator(df):
     df = df.rename(columns=mapping)
     
     if "Transmission" in df.columns:
+        # Internal: Store raw string, but set numeric codes for AI model processing
         df["Trans_Clean"] = df["Transmission"].astype(str).str.upper().str.strip()
         df["Transmission"] = df["Trans_Clean"].apply(lambda x: 2 if "CVT" in x else 1 if "M" in x else 0)
         
     if "Fuel Type" in df.columns:
+        # Internal: Convert to numeric for AI model processing
         df["Fuel Type"] = df["Fuel Type"].astype(str).str.title().str.strip().map(lambda x: FUEL_MAP.get(x, 1))
         
     return df
@@ -524,7 +526,7 @@ elif admin_mode == "App Dashboard":
 
                     for i, p in enumerate(raw_preds):
                         row = df_processed.iloc[i]
-                        is_ev = (row.get("Cylinders") == 0) or (row.get("Fuel Type") == "Electric") or (row.get("Engine Size") == 0)
+                        is_ev = (row.get("Cylinders") == 0) or (row.get("Fuel Type") == 0) or (row.get("Engine Size") == 0)
                         
                         if is_ev:
                             final_mpg.append(np.nan)
@@ -581,22 +583,27 @@ elif admin_mode == "App Dashboard":
                     # ==========================================
                     # TRANSPARENT OUTPUT LAYER (PRE-DISPLAY)
                     # ==========================================
-                    # 1. Map Fuel Numerals to Words
+                    # 1. Map Fuel Numerals back to Readable Words for the UI
                     fuel_lookup = {1: "Petrol", 2: "Diesel", 3: "Ethanol/Hybrid", 4: "Natural Gas", 0: "Electric (EV)"}
-                    df_processed['Fuel Type'] = df_processed['Fuel Type'].map(lambda x: fuel_lookup.get(x, x))
+                    df_processed['Fuel Type'] = df_processed['Fuel Type'].map(lambda x: fuel_lookup.get(x, "Other"))
 
-                    # 2. Map Transmission Codes to Clean Labels
-                    def clean_trans_label(x):
-                        x = str(x).upper()
-                        return "CVT" if "CVT" in x else "Manual" if "M" in x else "Automatic"
-                    df_processed['Trans_Clean'] = df_processed['Transmission'].apply(clean_trans_label)
+                    # 2. Map Transmission Codes to Clean Labels for the UI
+                    def decode_trans(x):
+                        if x == 2: return "CVT"
+                        if x == 1: return "Manual"
+                        return "Automatic"
+
+                    df_processed['Transmission'] = df_processed['Transmission'].apply(decode_trans)
 
                     # 3. Flag Auto-Healed Data Source
                     df_processed['Data Source'] = df_processed['was_corrected'].apply(
                         lambda x: "System Healed" if x == 1 else "Original OEM"
                     )
 
-                    st.dataframe(df_processed)
+                    # Drop internal helper columns before display
+                    cols_to_drop = ['Trans_Clean', 'was_corrected']
+                    st.dataframe(df_processed.drop(columns=[c for c in cols_to_drop if c in df_processed.columns]), use_container_width=True)
+                    
                     render_fleet_visuals(df_processed)
                     
                     fleet_insights = generate_strategic_insights(df_processed)
