@@ -541,6 +541,8 @@ elif admin_mode == "App Dashboard":
                         chem_truth = energy_constant / (max(row.get("CO2 Emissions", 200), 1) * 1.609)
                         mpg_val = final_mpg[-1]
                         
+                        was_corrected = 1 if not pd.isna(mpg_val) and (abs(mpg_val - chem_truth) / max(chem_truth, 1)) > 0.12 else 0
+
                         bulk_data_to_send.append({
                             "company_id": st.session_state.company_id,
                             "timestamp": datetime.datetime.now(EAT).isoformat(),
@@ -548,10 +550,13 @@ elif admin_mode == "App Dashboard":
                             "rnn_predicted_mpg": clean_float(mpg_val),
                             "physics_truth_mpg": clean_float(chem_truth),
                             "variance_percent": clean_float(abs(mpg_val - chem_truth) / max(chem_truth, 1)) if not pd.isna(mpg_val) else 0,
-                            "was_corrected": 1 if not pd.isna(mpg_val) and (abs(mpg_val - chem_truth) / max(chem_truth, 1)) > 0.12 else 0,
+                            "was_corrected": was_corrected,
                             "Annual_Fuel_Cost": clean_float(annual_costs[-1]),
                             "Efficiency_Rating": str(classify_efficiency(mpg_val))
                         })
+                        
+                        # Apply local flag for display without affecting ML logic
+                        df_processed.at[i, 'was_corrected'] = was_corrected
 
                     df_processed["Predicted_MPG"] = final_mpg
                     df_processed["Annual_Fuel_Cost"] = annual_costs
@@ -573,6 +578,24 @@ elif admin_mode == "App Dashboard":
                     m1.metric("Total Fleet Fuel Spend", f"${df_fuel_only['Annual_Fuel_Cost'].sum():,.0f}")
                     m2.metric("Avg Fleet MPG (Fuel)", f"{df_fuel_only['Predicted_MPG'].mean():.1f}")
                     
+                    # ==========================================
+                    # TRANSPARENT OUTPUT LAYER (PRE-DISPLAY)
+                    # ==========================================
+                    # 1. Map Fuel Numerals to Words
+                    fuel_lookup = {1: "Petrol", 2: "Diesel", 3: "Ethanol/Hybrid", 4: "Natural Gas", 0: "Electric (EV)"}
+                    df_processed['Fuel Type'] = df_processed['Fuel Type'].map(lambda x: fuel_lookup.get(x, x))
+
+                    # 2. Map Transmission Codes to Clean Labels
+                    def clean_trans_label(x):
+                        x = str(x).upper()
+                        return "CVT" if "CVT" in x else "Manual" if "M" in x else "Automatic"
+                    df_processed['Trans_Clean'] = df_processed['Transmission'].apply(clean_trans_label)
+
+                    # 3. Flag Auto-Healed Data Source
+                    df_processed['Data Source'] = df_processed['was_corrected'].apply(
+                        lambda x: "System Healed" if x == 1 else "Original OEM"
+                    )
+
                     st.dataframe(df_processed)
                     render_fleet_visuals(df_processed)
                     
