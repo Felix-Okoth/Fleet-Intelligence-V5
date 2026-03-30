@@ -87,7 +87,7 @@ def log_fleet_session_silent(avg_mpg, asset_count, fuel_cost, company_id, insigh
 
 # ===========================================
 # ANALYTICS & INSIGHTS
-# ===========================================             
+# ===========================================              
 
 def render_fleet_visuals(df):
     st.subheader("Fleet Performance Analytics")
@@ -488,22 +488,26 @@ elif admin_mode == "App Dashboard":
                         
                         if healed_specs:
                             ref_make = healed_specs['make']
+                            # BRAND SANITY CHECK: The Frankenstein Fix
                             if current_make.lower() != ref_make.lower():
                                 df_processed.at[index, 'Make'] = ref_make
-                                notes.append(f"Mismatch: Corrected Make to {ref_make}")
+                                notes.append(f"Sanity Check: Overwrote brand from '{current_make}' to '{ref_make}' to fix model mismatch.")
                                 mismatch_count += 1
-                                df_processed.at[index, 'Data_Status'] = "Repaired"
+                                df_processed.at[index, 'Data_Status'] = "Corrected"
                             
+                            # SPECS HEALING logic
                             if pd.isna(row.get('Engine Size')) or row.get('Engine Size') == 0:
                                 df_processed.at[index, 'Engine Size'] = healed_specs['engine_size']
                                 notes.append(f"Healed missing Engine Size to {healed_specs['engine_size']}L")
                                 auto_healed_count += 1
-                                df_processed.at[index, 'Data_Status'] = "Repaired"
+                                if df_processed.at[index, 'Data_Status'] != "Corrected":
+                                    df_processed.at[index, 'Data_Status'] = "Repaired"
                                 
                             if pd.isna(row.get('Cylinders')):
                                 df_processed.at[index, 'Cylinders'] = healed_specs['cylinders']
                                 notes.append(f"Healed missing Cylinders")
-                                df_processed.at[index, 'Data_Status'] = "Repaired"
+                                if df_processed.at[index, 'Data_Status'] != "Corrected":
+                                    df_processed.at[index, 'Data_Status'] = "Repaired"
                         
                         df_processed.at[index, 'Audit_Trail'] = " | ".join(notes)
 
@@ -569,7 +573,7 @@ elif admin_mode == "App Dashboard":
                         progress_bar.progress(min((i + batch_size) / total_records, 1.0))
 
                     df_fuel_only = df_processed[df_processed["Annual_Fuel_Cost"] > 0]
-                    st.info(f"Analysis Complete: {auto_healed_count} records healed, {mismatch_count} mismatches corrected, and {len(df_processed) - len(df_fuel_only)} EVs quarantined.")
+                    st.info(f"Analysis Complete: {auto_healed_count} records healed, {mismatch_count} Frankenstein brands corrected, and {len(df_processed) - len(df_fuel_only)} EVs quarantined.")
                     
                     m1, m2 = st.columns(2)
                     m1.metric("Total Fleet Fuel Spend", f"${df_fuel_only['Annual_Fuel_Cost'].sum():,.0f}")
@@ -590,8 +594,9 @@ elif admin_mode == "App Dashboard":
 
                     df_processed['Transmission'] = df_processed.apply(smart_decode_trans, axis=1)
 
-                    df_processed['Data Source'] = df_processed['was_corrected'].apply(
-                        lambda x: "System Healed" if x == 1 else "Original OEM"
+                    df_processed['Data Source'] = df_processed.apply(
+                        lambda r: "System Corrected" if r['Data_Status'] == "Corrected" else ("System Healed" if r['Data_Status'] == "Repaired" else "Original OEM"),
+                        axis=1
                     )
 
                     cols_to_drop = ['Trans_Clean', 'was_corrected']
