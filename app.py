@@ -607,13 +607,18 @@ elif admin_mode == "App Dashboard":
 
                     df_processed['Transmission'] = df_processed.apply(smart_decode_trans, axis=1)
 
-                    # --- UPDATED DATA SOURCE MAPPING ---
-                    df_processed['Data Source'] = df_processed.apply(
-                        lambda r: "Auto-Healed" if r['Data_Status'] == "Repaired" 
-                        else ("System Corrected" if r['Data_Status'] == "Corrected" 
-                        else "Original OEM"),
-                        axis=1
-                    )
+                    # --- UPDATED DATA SOURCE LOGIC (INTEGRATED) ---
+                    def determine_source(row):
+                        status = row.get('Data_Status')
+                        if status == "Repaired":
+                            return "Auto-Healed"
+                        elif status == "Corrected":
+                            return "System Corrected"
+                        else:
+                            return "User-Input"
+
+                    df_processed['Data Source'] = df_processed.apply(determine_source, axis=1)
+                    # -----------------------------------------------
 
                     # Clean view for final display and hardcopy audit
                     cols_to_hide = ['Data_Status', 'was_corrected', 'Trans_Clean']
