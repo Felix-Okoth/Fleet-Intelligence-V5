@@ -581,7 +581,8 @@ elif admin_mode == "App Dashboard":
                     progress_bar = st.progress(0)
                     for i in range(0, total_records, batch_size):
                         batch = bulk_data_to_send[i : i + batch_size]
-                        supabase.table("performance_vault").insert(batch).execute()
+                        # Temporary debug line
+print(f"Batch Size: {len(batch)} | Sample Row: {batch[0]}")
                         progress_bar.progress(min((i + batch_size) / total_records, 1.0))
 
                     df_fuel_only = df_processed[df_processed["Annual_Fuel_Cost"] > 0]
