@@ -545,7 +545,6 @@ elif admin_mode == "App Dashboard":
                             annual_costs.append(0.0)
                             df_processed.at[i, 'Data_Status'] = "EV Flagged"
                         else:
-                            # Re-map numerical code to string for the logic layer
                             f_map_rev = {1: "Regular", 2: "Diesel", 3: "Ethanol", 4: "Natural Gas", 0: "Premium"}
                             fuel_str = f_map_rev.get(row.get("Fuel Type"), "Regular")
                             
@@ -592,22 +591,7 @@ elif admin_mode == "App Dashboard":
                     m1.metric("Total Fleet Fuel Spend", f"${df_fuel_only['Annual_Fuel_Cost'].sum():,.0f}")
                     m2.metric("Avg Fleet MPG (Fuel)", f"{df_fuel_only['Predicted_MPG'].mean():.1f}")
                     
-                    # SNIPPET UPDATE: Accurate Human-Readable Mapping
-                    fuel_ui_map = {1: "Petrol", 2: "Diesel", 3: "Ethanol/Hybrid", 4: "Natural Gas", 0: "Premium/Electric"}
-                    df_processed['Fuel Type'] = df_processed['Fuel Type'].map(lambda x: fuel_ui_map.get(x, "Other"))
-
-                    # Robust Transmission Decoding
-                    def smart_decode_trans(row):
-                        code = row['Transmission']
-                        original = str(row['Trans_Clean']).upper()
-                        if code == 2: return "CVT"
-                        if code == 1: return "Manual"
-                        if "DIRECT" in original or "SINGLE" in original: return "Direct Drive"
-                        return "Automatic"
-
-                    df_processed['Transmission'] = df_processed.apply(smart_decode_trans, axis=1)
-
-                    # --- UPDATED DATA SOURCE LOGIC (INTEGRATED) ---
+                    # SNIPPET INTEGRATION: Data Source Column Logic
                     def determine_source(row):
                         status = row.get('Data_Status')
                         if status == "Repaired":
@@ -618,9 +602,22 @@ elif admin_mode == "App Dashboard":
                             return "User-Input"
 
                     df_processed['Data Source'] = df_processed.apply(determine_source, axis=1)
-                    # -----------------------------------------------
 
-                    # Clean view for final display and hardcopy audit
+                    # SNIPPET INTEGRATION: Human-Readable UI Mapping
+                    fuel_ui_map = {1: "Petrol", 2: "Diesel", 3: "Ethanol/Hybrid", 4: "Natural Gas", 0: "Premium/Electric"}
+                    df_processed['Fuel Type'] = df_processed['Fuel Type'].map(lambda x: fuel_ui_map.get(x, "Other"))
+
+                    def smart_decode_trans(row):
+                        code = row['Transmission']
+                        original = str(row['Trans_Clean']).upper()
+                        if code == 2: return "CVT"
+                        if code == 1: return "Manual"
+                        if "DIRECT" in original or "SINGLE" in original: return "Direct Drive"
+                        return "Automatic"
+
+                    df_processed['Transmission'] = df_processed.apply(smart_decode_trans, axis=1)
+
+                    # Clean view for final display
                     cols_to_hide = ['Data_Status', 'was_corrected', 'Trans_Clean']
                     final_view = df_processed.drop(columns=[c for c in cols_to_hide if c in df_processed.columns])
                     st.dataframe(final_view, use_container_width=True)
