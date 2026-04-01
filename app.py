@@ -607,13 +607,18 @@ elif admin_mode == "App Dashboard":
 
                     df_processed['Transmission'] = df_processed.apply(smart_decode_trans, axis=1)
 
+                    # --- UPDATED DATA SOURCE MAPPING ---
                     df_processed['Data Source'] = df_processed.apply(
-                        lambda r: "System Corrected" if r['Data_Status'] == "Corrected" else ("System Healed" if r['Data_Status'] == "Repaired" else "Original OEM"),
+                        lambda r: "Auto-Healed" if r['Data_Status'] == "Repaired" 
+                        else ("System Corrected" if r['Data_Status'] == "Corrected" 
+                        else "Original OEM"),
                         axis=1
                     )
 
-                    cols_to_drop = ['Trans_Clean', 'was_corrected']
-                    st.dataframe(df_processed.drop(columns=[c for c in cols_to_drop if c in df_processed.columns]), use_container_width=True)
+                    # Clean view for final display and hardcopy audit
+                    cols_to_hide = ['Data_Status', 'was_corrected', 'Trans_Clean']
+                    final_view = df_processed.drop(columns=[c for c in cols_to_hide if c in df_processed.columns])
+                    st.dataframe(final_view, use_container_width=True)
                     
                     render_fleet_visuals(df_processed)
                     
