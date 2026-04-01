@@ -448,17 +448,30 @@ elif admin_mode == "App Dashboard":
             hwy_l = st.number_input("Hwy (L/100km)", 0.0, 30.0, 8.0, step=0.1)
             comb = (city_l * 0.55) + (hwy_l * 0.45)
         
+        # SNIPPET INTEGRATION: Single Mode truth-balance correction
         if st.button("Generate AI Prediction"):
             if cyl == 0 or fuel_t == "Electric" or eng == 0:
                 st.warning("Electric Vehicle detected. Predictions are disabled until the April 13th update.")
             else:
-                single_row = pd.DataFrame([{"Model Year": v_year, "Make": v_make, "Engine Size": eng, "Cylinders": cyl, "Fuel Type": fuel_t, "Vehicle Class": v_class, "Transmission": v_trans, "CO2 Emissions": co2, "City (L/100km)": city_l, "Hwy (L/100km)": hwy_l, "Comb (L/100km)": comb}])
+                # 1. Create matching DataFrame
+                single_row = pd.DataFrame([{
+                    "Model Year": v_year, "Make": v_make, "Engine Size": eng, 
+                    "Cylinders": cyl, "Fuel Type": fuel_t, "Vehicle Class": v_class, 
+                    "Transmission": v_trans, "CO2 Emissions": co2, 
+                    "City (L/100km)": city_l, "Hwy (L/100km)": hwy_l, "Comb (L/100km)": comb
+                }])
+                # 2. Clean/Encode
                 cleaned_df = nlp_translator(single_row)
+                # 3. Scale and Reshape to 3D (Match Bulk Logic)
                 ai_in_raw = prepare_ai_input(cleaned_df, scaler_X)
                 rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1) 
-                raw_mpg = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in)))[0][0]
+                # 4. Predict & Inverse Scale
+                preds_log = model.predict(rnn_in)
+                raw_mpg = np.expm1(scaler_y.inverse_transform(preds_log))[0][0]
+                # 5. Hybrid Reality Layer (Passing string 'fuel_t' for dictionary match)
                 display_mpg = apply_hybrid_reality_logic(raw_mpg, v_year, v_make, v_class, fuel_t, eng, cyl, co2)
-                st.metric(f"{v_year} Efficiency Score", f"{display_mpg:.2f} MPG")
+                # 6. Metrics
+                st.metric(f"{v_year} {v_make} Efficiency", f"{display_mpg:.2f} MPG")
                 st.success(f"Rating: {classify_efficiency(display_mpg)}")
 
     elif mode == "Bulk Fleet Analytics":
