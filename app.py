@@ -567,7 +567,7 @@ elif admin_mode == "App Dashboard":
                             "physics_truth_mpg": clean_float(chem_truth),
                             "variance_percent": clean_float(abs(mpg_val - chem_truth) / max(chem_truth, 1)) if not pd.isna(mpg_val) else 0,
                             "was_corrected": was_corrected,
-                            "Annual_Fuel_Cost": clean_float(annual_costs[-1]),
+                            "annual_fuel_cost": clean_float(annual_costs[-1]),
                             "Efficiency_Rating": str(classify_efficiency(mpg_val))
                         })
                         df_processed.at[i, 'was_corrected'] = was_corrected
