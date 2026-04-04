@@ -590,7 +590,7 @@ elif admin_mode == "App Dashboard":
                     st.info(f"Analysis Complete: {auto_healed_count} records healed, {mismatch_count} Frankenstein brands corrected, and {len(df_processed) - len(df_fuel_only)} EVs quarantined.")
                     
                     m1, m2 = st.columns(2)
-                    m1.metric("Total Fleet Fuel Spend", f"${df_fuel_only['Annual_Fuel_Cost'].sum():,.0f}")
+                    m1.metric("Total Fleet Fuel Spend", f"${df_fuel_only['annual_fuel_cost'].sum():,.0f}")
                     m2.metric("Avg Fleet MPG (Fuel)", f"{df_fuel_only['Predicted_MPG'].mean():.1f}")
                     
                     # SNIPPET INTEGRATION: Data Source Column Logic
