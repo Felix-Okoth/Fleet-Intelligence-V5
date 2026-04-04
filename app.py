@@ -282,7 +282,7 @@ def create_pdf(df, fig=None, insights=[]):
     poor_assets = df_fuel[df_fuel['Efficiency_Rating'] == 'Poor']
     savings = 0
     if not poor_assets.empty and avg_mpg > 0:
-        current_cost = poor_assets['Annual_Fuel_Cost'].sum()
+        current_cost = poor_assets['annual_fuel_cost'].sum()
         optimized_cost = (len(poor_assets) * 15000 / avg_mpg) * 4.50
         savings = max(0, current_cost - optimized_cost)
 
