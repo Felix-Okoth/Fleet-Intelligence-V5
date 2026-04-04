@@ -573,7 +573,7 @@ elif admin_mode == "App Dashboard":
                         df_processed.at[i, 'was_corrected'] = was_corrected
 
                     df_processed["Predicted_MPG"] = final_mpg
-                    df_processed["Annual_Fuel_Cost"] = annual_costs
+                    df_processed["annual_fuel_cost"] = annual_costs
                     df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(classify_efficiency)
                     
                     batch_size = 500
