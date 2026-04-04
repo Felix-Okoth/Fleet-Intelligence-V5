@@ -121,7 +121,7 @@ def render_fleet_visuals(df):
     st.markdown("<br>", unsafe_allow_html=True)
 
     fig_cost = px.bar(
-        df_visual, x="Make", y="Annual_Fuel_Cost", 
+        df_visual, x="Make", y="annual_fuel_cost", 
         color="Efficiency_Rating", title="Annual Fuel Exposure by OEM",
         barmode="group", 
         color_discrete_map=brand_colors,
