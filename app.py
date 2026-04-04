@@ -630,7 +630,7 @@ elif admin_mode == "App Dashboard":
                     for insight in fleet_insights:
                         st.info(f"{insight}")
 
-                    log_fleet_session_silent(df_fuel_only["Predicted_MPG"].mean(), len(df_processed), df_fuel_only["Annual_Fuel_Cost"].sum(), st.session_state.company_id, insights=" | ".join(fleet_insights))
+                    log_fleet_session_silent(df_fuel_only["Predicted_MPG"].mean(), len(df_processed), df_fuel_only["annual_fuel_cost"].sum(), st.session_state.company_id, insights=" | ".join(fleet_insights))
                     
                     report_data = create_pdf(df_processed, insights=fleet_insights)
                     st.download_button(label="Download Executive Strategy Report (PDF)", data=report_data, file_name="Fleet_Strategy_Report.pdf", mime="application/pdf")
