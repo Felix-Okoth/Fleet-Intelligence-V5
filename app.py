@@ -586,7 +586,7 @@ elif admin_mode == "App Dashboard":
                         print(f"Batch Size: {len(batch)} | Sample Row: {batch[0]}")
                         progress_bar.progress(min((i + batch_size) / total_records, 1.0))
 
-                    df_fuel_only = df_processed[df_processed["Annual_Fuel_Cost"] > 0]
+                    df_fuel_only = df_processed[df_processed["annual_fuel_cost"] > 0]
                     st.info(f"Analysis Complete: {auto_healed_count} records healed, {mismatch_count} Frankenstein brands corrected, and {len(df_processed) - len(df_fuel_only)} EVs quarantined.")
                     
                     m1, m2 = st.columns(2)
