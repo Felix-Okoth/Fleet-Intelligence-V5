@@ -453,24 +453,18 @@ elif admin_mode == "App Dashboard":
             if cyl == 0 or fuel_t == "Electric" or eng == 0:
                 st.warning("Electric Vehicle detected. Predictions are disabled until the April 13th update.")
             else:
-                # 1. Create matching DataFrame
                 single_row = pd.DataFrame([{
                     "Model Year": v_year, "Make": v_make, "Engine Size": eng, 
                     "Cylinders": cyl, "Fuel Type": fuel_t, "Vehicle Class": v_class, 
                     "Transmission": v_trans, "CO2 Emissions": co2, 
                     "City (L/100km)": city_l, "Hwy (L/100km)": hwy_l, "Comb (L/100km)": comb
                 }])
-                # 2. Clean/Encode
                 cleaned_df = nlp_translator(single_row)
-                # 3. Scale and Reshape to 3D (Match Bulk Logic)
                 ai_in_raw = prepare_ai_input(cleaned_df, scaler_X)
                 rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1) 
-                # 4. Predict & Inverse Scale
                 preds_log = model.predict(rnn_in)
                 raw_mpg = np.expm1(scaler_y.inverse_transform(preds_log))[0][0]
-                # 5. Hybrid Reality Layer (Passing string 'fuel_t' for dictionary match)
                 display_mpg = apply_hybrid_reality_logic(raw_mpg, v_year, v_make, v_class, fuel_t, eng, cyl, co2)
-                # 6. Metrics
                 st.metric(f"{v_year} {v_make} Efficiency", f"{display_mpg:.2f} MPG")
                 st.success(f"Rating: {classify_efficiency(display_mpg)}")
 
@@ -501,14 +495,12 @@ elif admin_mode == "App Dashboard":
                         
                         if healed_specs:
                             ref_make = healed_specs['make']
-                            # BRAND SANITY CHECK: The Frankenstein Fix
                             if current_make.lower() != ref_make.lower():
                                 df_processed.at[index, 'Make'] = ref_make
                                 notes.append(f"Sanity Check: Overwrote brand from '{current_make}' to '{ref_make}' to fix model mismatch.")
                                 mismatch_count += 1
                                 df_processed.at[index, 'Data_Status'] = "Corrected"
                             
-                            # SPECS HEALING logic
                             if pd.isna(row.get('Engine Size')) or row.get('Engine Size') == 0:
                                 df_processed.at[index, 'Engine Size'] = healed_specs['engine_size']
                                 notes.append(f"Healed missing Engine Size to {healed_specs['engine_size']}L")
@@ -547,7 +539,6 @@ elif admin_mode == "App Dashboard":
                         else:
                             f_map_rev = {1: "Regular", 2: "Diesel", 3: "Ethanol", 4: "Natural Gas", 0: "Premium"}
                             fuel_str = f_map_rev.get(row.get("Fuel Type"), "Regular")
-                            
                             real_p = apply_hybrid_reality_logic(p, row.get("Model Year", 2024), row.get("Make", "Unknown"), row.get("Vehicle Class", "Mid-Size"), fuel_str, row.get("Engine Size", 2.0), row.get("Cylinders", 4), row.get("CO2 Emissions", 200), silent=True)
                             final_mpg.append(real_p)
                             annual_costs.append((15000 / real_p) * 4.50)
@@ -581,31 +572,23 @@ elif admin_mode == "App Dashboard":
                     progress_bar = st.progress(0)
                     for i in range(0, total_records, batch_size):
                         batch = bulk_data_to_send[i : i + batch_size]
-                        # SNIPPET INSERTION: Execute Supabase Batch Sync
                         supabase.table("performance_vault").insert(batch).execute()
-                        print(f"Batch Size: {len(batch)} | Sample Row: {batch[0]}")
                         progress_bar.progress(min((i + batch_size) / total_records, 1.0))
 
                     df_fuel_only = df_processed[df_processed["annual_fuel_cost"] > 0]
-                    st.info(f"Analysis Complete: {auto_healed_count} records healed, {mismatch_count} Frankenstein brands corrected, and {len(df_processed) - len(df_fuel_only)} EVs quarantined.")
+                    st.info(f"Analysis Complete: {auto_healed_count} records healed, {mismatch_count} Frankenstein brands corrected.")
                     
                     m1, m2 = st.columns(2)
                     m1.metric("Total Fleet Fuel Spend", f"${df_fuel_only['annual_fuel_cost'].sum():,.0f}")
                     m2.metric("Avg Fleet MPG (Fuel)", f"{df_fuel_only['Predicted_MPG'].mean():.1f}")
                     
-                    # SNIPPET INTEGRATION: Data Source Column Logic
                     def determine_source(row):
                         status = row.get('Data_Status')
-                        if status == "Repaired":
-                            return "Auto-Healed"
-                        elif status == "Corrected":
-                            return "System Corrected"
-                        else:
-                            return "User-Input"
+                        if status == "Repaired": return "Auto-Healed"
+                        if status == "Corrected": return "System Corrected"
+                        return "User-Input"
 
                     df_processed['Data Source'] = df_processed.apply(determine_source, axis=1)
-
-                    # SNIPPET INTEGRATION: Human-Readable UI Mapping
                     fuel_ui_map = {1: "Petrol", 2: "Diesel", 3: "Ethanol/Hybrid", 4: "Natural Gas", 0: "Premium/Electric"}
                     df_processed['Fuel Type'] = df_processed['Fuel Type'].map(lambda x: fuel_ui_map.get(x, "Other"))
 
@@ -619,13 +602,11 @@ elif admin_mode == "App Dashboard":
 
                     df_processed['Transmission'] = df_processed.apply(smart_decode_trans, axis=1)
 
-                    # Clean view for final display
-                    cols_to_hide = ['Data_Status', 'was_corrected', 'Trans_Clean']
+                    cols_to_hide = ['Data_Status', 'Auto_healed', 'Trans_Clean']
                     final_view = df_processed.drop(columns=[c for c in cols_to_hide if c in df_processed.columns])
                     st.dataframe(final_view, use_container_width=True)
                     
                     render_fleet_visuals(df_processed)
-                    
                     fleet_insights = generate_strategic_insights(df_processed)
                     for insight in fleet_insights:
                         st.info(f"{insight}")
@@ -633,4 +614,4 @@ elif admin_mode == "App Dashboard":
                     log_fleet_session_silent(df_fuel_only["Predicted_MPG"].mean(), len(df_processed), df_fuel_only["annual_fuel_cost"].sum(), st.session_state.company_id, insights=" | ".join(fleet_insights))
                     
                     report_data = create_pdf(df_processed, insights=fleet_insights)
-                    st.download_button(label="Download Executive Strategy Report (PDF)", data=report_data, file_name="Fleet_Strategy_Report.pdf", mime="application/pdf")
+                    st.download_button(label="Download Executive Strategy Report (PDF)", data=report_data, file_name=f"Fleet_Strategy_{datetime.date.today()}.pdf", mime="application/pdf")
