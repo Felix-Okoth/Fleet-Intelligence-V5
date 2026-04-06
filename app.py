@@ -40,6 +40,13 @@ def encrypt_data(data):
 def decrypt_data(token):
     return cipher.decrypt(token.encode()).decode()
 
+# --- INTEGRATION 1: THE GHOST SYNTHESIZER ---
+def ghost_synthesizer(df):
+    """Generates synthetic variance for testing edge cases in the fleet stream."""
+    if not df.empty:
+        df['ghost_signal'] = df.apply(lambda x: math.sin(datetime.datetime.now().timestamp()) * 0.05 if random.random() > 0.9 else 0, axis=1)
+    return df
+
 # --- NEW: AUTO-HEAL LOOKUP FUNCTION ---
 def auto_heal_specs(make, model):
     """Looks up missing vehicle specs from the master reference table."""
@@ -92,14 +99,12 @@ def log_fleet_session_silent(avg_mpg, asset_count, fuel_cost, company_id, insigh
 def render_fleet_visuals(df):
     st.subheader("Fleet Performance Analytics")
     
-    # SNIPPET UPDATE: Unified Color Palette for Consistency
     brand_colors = {
         "Excellent": "#00ffcc",  # Teal
         "Average": "#636efa",    # Blue
         "Poor": "#ff4b4b"        # Red
     }
     
-    # Filter out EVs for visuals to avoid skewed axis
     df_visual = df[df["Data_Status"] != "EV Flagged"].copy()
     
     fig_frontier = px.scatter(
@@ -237,12 +242,17 @@ def load_resources():
 model, scaler_X, scaler_y = load_resources()
 
 def apply_hybrid_reality_logic(rnn_mpg, year, make, v_class, fuel_t, engine_size, cylinders, co2, silent=False):
+    # --- INTEGRATION 2: UPDATED PHYSICS LOGIC ---
     make_bias = {"Toyota": 0.95, "Honda": 0.95, "Ford": 1.10, "Chevrolet": 1.10}
     m_factor = make_bias.get(make, 1.0)
     fuel_chem = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903, "Natural Gas": 6000}
     energy_constant = fuel_chem.get(fuel_t, 8887)
+    
+    # Physics Calculation: Chemical Truth
     chemical_truth_mpg = energy_constant / (max(co2, 1) * 1.609)
     friction_loss = (engine_size * 0.12) + (cylinders * 0.06)
+    
+    # Apply Physics constraint
     max_physical_cap = (68.0 / (1 + friction_loss)) * (1 / m_factor)
     percent_variance = abs(rnn_mpg - chemical_truth_mpg) / chemical_truth_mpg
     
@@ -268,6 +278,15 @@ def get_dynamic_text(category):
         ]
     }
     return random.choice(vaults.get(category, ["Report Section"]))
+
+# --- INTEGRATION 3: THE INTELLIGENT VALIDATOR ---
+def intelligent_validator(data_payload):
+    """Ensures data integrity before final storage or reporting."""
+    required_keys = ["company_id", "timestamp", "rnn_predicted_mpg"]
+    for key in required_keys:
+        if key not in data_payload or data_payload[key] is None:
+            return False
+    return True
 
 def create_pdf(df, fig=None, insights=[]):
     def safe_str(text):
@@ -366,7 +385,6 @@ def nlp_translator(df):
     df = df.rename(columns=mapping)
     
     if "Transmission" in df.columns:
-        # SNIPPET UPDATE: Robust Encoding to prevent "All Automatic" error
         def encode_trans(x):
             val = str(x).upper()
             if any(k in val for k in ["CVT", "CONTINUOUS"]): return 2
@@ -448,7 +466,6 @@ elif admin_mode == "App Dashboard":
             hwy_l = st.number_input("Hwy (L/100km)", 0.0, 30.0, 8.0, step=0.1)
             comb = (city_l * 0.55) + (hwy_l * 0.45)
         
-        # SNIPPET INTEGRATION: Single Mode truth-balance correction
         if st.button("Generate AI Prediction"):
             if cyl == 0 or fuel_t == "Electric" or eng == 0:
                 st.warning("Electric Vehicle detected. Predictions are disabled until the April 13th update.")
@@ -474,7 +491,8 @@ elif admin_mode == "App Dashboard":
         if file:
             df_raw = pd.read_csv(file) if file.name.lower().endswith('.csv') else pd.read_excel(file, engine='openpyxl')
             run_dataset_health_check(df_raw)
-            df_processed = nlp_translator(df_raw.copy())
+            # Apply Ghost Synthesizer before processing
+            df_processed = ghost_synthesizer(nlp_translator(df_raw.copy()))
 
             if st.button("Process Intelligence"):
                 with st.spinner("Analyzing Fleet & Securing Vault..."):
@@ -550,7 +568,8 @@ elif admin_mode == "App Dashboard":
                         
                         was_corrected = 1 if not pd.isna(mpg_val) and (abs(mpg_val - chem_truth) / max(chem_truth, 1)) > 0.12 else 0
 
-                        bulk_data_to_send.append({
+                        # Payload creation
+                        payload = {
                             "company_id": st.session_state.company_id,
                             "timestamp": datetime.datetime.now(EAT).isoformat(),
                             "vehicle_make": encrypt_data(str(row.get("Make", "Unknown"))),
@@ -560,7 +579,11 @@ elif admin_mode == "App Dashboard":
                             "was_corrected": was_corrected,
                             "annual_fuel_cost": clean_float(annual_costs[-1]),
                             "Efficiency_Rating": str(classify_efficiency(mpg_val))
-                        })
+                        }
+                        
+                        # Apply Intelligent Validator before adding to bulk send
+                        if intelligent_validator(payload):
+                            bulk_data_to_send.append(payload)
                         df_processed.at[i, 'was_corrected'] = was_corrected
 
                     df_processed["Predicted_MPG"] = final_mpg
