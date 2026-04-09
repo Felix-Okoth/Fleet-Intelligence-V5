@@ -580,152 +580,165 @@ elif admin_mode == "App Dashboard":
                         notes = []
                         current_make = str(row.get('Make'))
                         current_model = str(row.get('Model'))
-                        
-                        # INTEGRATION UPDATED: Bulk Fleet Connection
-                        is_valid, validation_msg = verify_and_learn_vehicle(current_make, current_model, supabase, row.get('Engine Size'), row.get('Fuel Type'), row.get('Transmission'))
-                        
-                        if not is_valid:
-                            hallucination_count += 1
-                            df_processed.at[index, 'Data_Status'] = "Rejected"
-                            notes.append(validation_msg)
-                        
-                        healed_specs = ref_lookup.get(current_model)
-                        
-                        if healed_specs:
-                            ref_make = healed_specs['make']
-                            if current_make.lower() != ref_make.lower():
-                                df_processed.at[index, 'Make'] = ref_make
-                                notes.append(f"Sanity Check: Overwrote brand from '{current_make}' to '{ref_make}' to fix model mismatch.")
-                                mismatch_count += 1
-                                if df_processed.at[index, 'Data_Status'] != "Rejected":
-                                    df_processed.at[index, 'Data_Status'] = "Corrected"
-                            
-                            if pd.isna(row.get('Engine Size')) or row.get('Engine Size') == 0:
-                                df_processed.at[index, 'Engine Size'] = healed_specs['engine_size']
-                                notes.append(f"Healed missing Engine Size to {healed_specs['engine_size']}L")
-                                auto_healed_count += 1
-                                if df_processed.at[index, 'Data_Status'] not in ["Corrected", "Rejected"]:
-                                    df_processed.at[index, 'Data_Status'] = "Repaired"
-                            
-                            if pd.isna(row.get('Cylinders')):
-                                df_processed.at[index, 'Cylinders'] = healed_specs['cylinders']
-                                notes.append(f"Healed missing Cylinders")
-                                if df_processed.at[index, 'Data_Status'] not in ["Corrected", "Rejected"]:
-                                    df_processed.at[index, 'Data_Status'] = "Repaired"
-                        
-                        df_processed.at[index, 'Audit_Trail'] = " | ".join(notes)
+                     # INTEGRATION UPDATED: Bulk Fleet Connection (Optimized)
+# Pre-fetch all reference data once to avoid O(n) database calls
+unique_models = df_processed['Model'].unique().tolist()
+ref_data_raw = supabase.table("vehicles").select("*").in_("model", unique_models).execute().data
+ref_lookup = {r['model']: r for r in ref_data_raw}
 
-                    final_mpg = []
-                    annual_costs = []
-                    ai_in_raw = prepare_ai_input(df_processed, scaler_X)
-                    rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1)
-                    raw_preds = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in))).flatten()
-                    
-                    bulk_data_to_send = []
-                    def clean_float(val):
-                        if val is None or not isinstance(val, (int, float)) or math.isnan(val) or math.isinf(val):
-                            return None
-                        return float(val)
+encryption_cache = {}
+timestamp_now = datetime.datetime.now(EAT).isoformat()
 
-                    for i, p in enumerate(raw_preds):
-                        row = df_processed.iloc[i]
-                        # Exclude Rejected hallucinations from calculations
-                        if row.get('Data_Status') == "Rejected":
-                            final_mpg.append(np.nan)
-                            annual_costs.append(0.0)
-                            continue
+for index, row in df_processed.iterrows():
+    notes = []
+    current_make = row.get('Make', 'Unknown')
+    current_model = row.get('Model')
+    
+    # LOCAL LOOKUP: Replaces verify_and_learn_vehicle network call
+    healed_specs = ref_lookup.get(current_model)
+    
+    if healed_specs:
+        ref_make = healed_specs['make']
+        if current_make.lower() != ref_make.lower():
+            df_processed.at[index, 'Make'] = ref_make
+            notes.append(f"Sanity Check: Overwrote brand from '{current_make}' to '{ref_make}' to fix model mismatch.")
+            mismatch_count += 1
+            if df_processed.at[index, 'Data_Status'] != "Rejected":
+                df_processed.at[index, 'Data_Status'] = "Corrected"
+        
+        if pd.isna(row.get('Engine Size')) or row.get('Engine Size') == 0:
+            df_processed.at[index, 'Engine Size'] = healed_specs['engine_size']
+            notes.append(f"Healed missing Engine Size to {healed_specs['engine_size']}L")
+            auto_healed_count += 1
+            if df_processed.at[index, 'Data_Status'] not in ["Corrected", "Rejected"]:
+                df_processed.at[index, 'Data_Status'] = "Repaired"
+        
+        if pd.isna(row.get('Cylinders')):
+            df_processed.at[index, 'Cylinders'] = healed_specs['cylinders']
+            notes.append(f"Healed missing Cylinders")
+            if df_processed.at[index, 'Data_Status'] not in ["Corrected", "Rejected"]:
+                df_processed.at[index, 'Data_Status'] = "Repaired"
+    else:
+        # If not in ref_lookup, it's flagged as a hallucination
+        hallucination_count += 1
+        df_processed.at[index, 'Data_Status'] = "Rejected"
+        notes.append("Validation Error: Model not recognized in ground truth.")
 
-                        is_ev = (row.get("Cylinders") == 0) or (row.get("Fuel Type") == 0) or (row.get("Engine Size") == 0)
-                        
-                        if is_ev:
-                            final_mpg.append(np.nan)
-                            annual_costs.append(0.0)
-                            df_processed.at[i, 'Data_Status'] = "EV Flagged"
-                        else:
-                            f_map_rev = {1: "Regular", 2: "Diesel", 3: "Ethanol", 4: "Natural Gas", 0: "Premium"}
-                            fuel_str = f_map_rev.get(row.get("Fuel Type"), "Regular")
-                            real_p = apply_hybrid_reality_logic(p, row.get("Model Year", 2024), row.get("Make", "Unknown"), row.get("Vehicle Class", "Mid-Size"), fuel_str, row.get("Engine Size", 2.0), row.get("Cylinders", 4), row.get("CO2 Emissions", 200), silent=True)
-                            final_mpg.append(real_p)
-                            annual_costs.append((15000 / real_p) * 4.50)
-                        
-                        fuel_chem_val = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903, "Natural Gas": 6000}
-                        energy_constant = fuel_chem_val.get(row.get("Fuel Type"), 8887)
-                        chem_truth = energy_constant / (max(row.get("CO2 Emissions", 200), 1) * 1.609)
-                        mpg_val = final_mpg[-1]
-                        
-                        was_corrected = 1 if not pd.isna(mpg_val) and (abs(mpg_val - chem_truth) / max(chem_truth, 1)) > 0.12 else 0
+    df_processed.at[index, 'Audit_Trail'] = " | ".join(notes)
 
-                        payload = {
-                            "company_id": st.session_state.company_id,
-                            "timestamp": datetime.datetime.now(EAT).isoformat(),
-                            "vehicle_make": encrypt_data(str(row.get("Make", "Unknown"))),
-                            "rnn_predicted_mpg": clean_float(mpg_val),
-                            "physics_truth_mpg": clean_float(chem_truth),
-                            "variance_percent": clean_float(abs(mpg_val - chem_truth) / max(chem_truth, 1)) if not pd.isna(mpg_val) else 0,
-                            "was_corrected": was_corrected,
-                            "annual_fuel_cost": clean_float(annual_costs[-1]),
-                            "Efficiency_Rating": str(classify_efficiency(mpg_val))
-                        }
-                        
-                        if intelligent_validator(payload):
-                            bulk_data_to_send.append(payload)
-                        df_processed.at[i, 'was_corrected'] = was_corrected
+final_mpg = []
+annual_costs = []
+ai_in_raw = prepare_ai_input(df_processed, scaler_X)
+rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1)
+raw_preds = np.expm1(scaler_y.inverse_transform(model.predict(rnn_in))).flatten()
 
-                    df_processed["Predicted_MPG"] = final_mpg
-                    df_processed["annual_fuel_cost"] = annual_costs
-                    df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(classify_efficiency)
-                    
-                    # Rest of the processing (batching and visualization) would follow here
-                    
-                    batch_size = 500
-                    total_records = len(bulk_data_to_send)
-                    progress_bar = st.progress(0)
-                    for i in range(0, total_records, batch_size):
-                        batch = bulk_data_to_send[i : i + batch_size]
-                        supabase.table("performance_vault").insert(batch).execute()
-                        progress_bar.progress(min((i + batch_size) / total_records, 1.0))
+bulk_data_to_send = []
+def clean_float(val):
+    if val is None or not isinstance(val, (int, float)) or math.isnan(val) or math.isinf(val):
+        return None
+    return float(val)
 
-                    df_fuel_only = df_processed[df_processed["annual_fuel_cost"] > 0]
-                    summary_msg = f"Analysis Complete: {auto_healed_count} records healed, {mismatch_count} Frankenstein brands corrected."
-                    if hallucination_count > 0:
-                        summary_msg += f"{hallucination_count} hallucinated models detected and flagged."
-                    st.info(summary_msg)
-                    
-                    m1, m2 = st.columns(2)
-                    m1.metric("Total Fleet Fuel Spend", f"${df_fuel_only['annual_fuel_cost'].sum():,.0f}")
-                    m2.metric("Avg Fleet MPG (Fuel)", f"{df_fuel_only['Predicted_MPG'].mean():.1f}")
-                    
-                    def determine_source(row):
-                        status = row.get('Data_Status')
-                        if status == "Repaired": return "Auto-Healed"
-                        if status == "Corrected": return "System Corrected"
-                        if status == "Rejected": return "Rejected (Fake Model)"
-                        return "User-Input"
+for i, p in enumerate(raw_preds):
+    row = df_processed.iloc[i]
+    if row.get('Data_Status') == "Rejected":
+        final_mpg.append(np.nan)
+        annual_costs.append(0.0)
+        continue
 
-                    df_processed['Data Source'] = df_processed.apply(determine_source, axis=1)
-                    fuel_ui_map = {1: "Petrol", 2: "Diesel", 3: "Ethanol/Hybrid", 4: "Natural Gas", 0: "Premium/Electric"}
-                    df_processed['Fuel Type'] = df_processed['Fuel Type'].map(lambda x: fuel_ui_map.get(x, "Other"))
+    is_ev = (row.get("Cylinders") == 0) or (row.get("Fuel Type") == 0) or (row.get("Engine Size") == 0)
+    
+    if is_ev:
+        final_mpg.append(np.nan)
+        annual_costs.append(0.0)
+        df_processed.at[i, 'Data_Status'] = "EV Flagged"
+    else:
+        f_map_rev = {1: "Regular", 2: "Diesel", 3: "Ethanol", 4: "Natural Gas", 0: "Premium"}
+        fuel_str = f_map_rev.get(row.get("Fuel Type"), "Regular")
+        real_p = apply_hybrid_reality_logic(p, row.get("Model Year", 2024), row.get("Make", "Unknown"), row.get("Vehicle Class", "Mid-Size"), fuel_str, row.get("Engine Size", 2.0), row.get("Cylinders", 4), row.get("CO2 Emissions", 200), silent=True)
+        final_mpg.append(real_p)
+        annual_costs.append((15000 / real_p) * 4.50)
+    
+    fuel_chem_val = {"Regular": 8887, "Premium": 8887, "Diesel": 10180, "Ethanol": 5903, "Natural Gas": 6000}
+    energy_constant = fuel_chem_val.get(row.get("Fuel Type"), 8887)
+    chem_truth = energy_constant / (max(row.get("CO2 Emissions", 200), 1) * 1.609)
+    mpg_val = final_mpg[-1]
+    
+    was_corrected = 1 if not pd.isna(mpg_val) and (abs(mpg_val - chem_truth) / max(chem_truth, 1)) > 0.12 else 0
 
-                    def smart_decode_trans(row):
-                        code = row['Transmission']
-                        original = str(row['Trans_Clean']).upper()
-                        if code == 2: return "CVT"
-                        if code == 1: return "Manual"
-                        if "DIRECT" in original or "SINGLE" in original: return "Direct Drive"
-                        return "Automatic"
+    # Optimization: Cache encryption for repeated brand names
+    make_raw = str(row.get("Make", "Unknown"))
+    if make_raw not in encryption_cache:
+        encryption_cache[make_raw] = encrypt_data(make_raw)
 
-                    df_processed['Transmission'] = df_processed.apply(smart_decode_trans, axis=1)
+    payload = {
+        "company_id": st.session_state.company_id,
+        "timestamp": timestamp_now,
+        "vehicle_make": encryption_cache[make_raw],
+        "rnn_predicted_mpg": clean_float(mpg_val),
+        "physics_truth_mpg": clean_float(chem_truth),
+        "variance_percent": clean_float(abs(mpg_val - chem_truth) / max(chem_truth, 1)) if not pd.isna(mpg_val) else 0,
+        "was_corrected": was_corrected,
+        "annual_fuel_cost": clean_float(annual_costs[-1]),
+        "Efficiency_Rating": str(classify_efficiency(mpg_val))
+    }
+    
+    if intelligent_validator(payload):
+        bulk_data_to_send.append(payload)
+    df_processed.at[i, 'was_corrected'] = was_corrected
 
-                    cols_to_hide = ['Data_Status', 'Auto_healed', 'Trans_Clean']
-                    final_view = df_processed.drop(columns=[c for c in cols_to_hide if c in df_processed.columns])
-                    st.dataframe(final_view, use_container_width=True)
-                    
-                    render_fleet_visuals(df_processed)
-                    fleet_insights = generate_strategic_insights(df_processed)
-                    for insight in fleet_insights:
-                        st.info(f"{insight}")
+df_processed["Predicted_MPG"] = final_mpg
+df_processed["annual_fuel_cost"] = annual_costs
+df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(classify_efficiency)
 
-                    log_fleet_session_silent(df_fuel_only["Predicted_MPG"].mean(), len(df_processed), df_fuel_only["annual_fuel_cost"].sum(), st.session_state.company_id, insights=" | ".join(fleet_insights))
-                    
-                    report_data = create_pdf(df_processed, insights=fleet_insights)
-                    st.download_button(label="Download Executive Strategy Report (PDF)", data=report_data, file_name=f"Fleet_Strategy_{datetime.date.today()}.pdf", mime="application/pdf")
+batch_size = 500
+total_records = len(bulk_data_to_send)
+progress_bar = st.progress(0)
+for i in range(0, total_records, batch_size):
+    batch = bulk_data_to_send[i : i + batch_size]
+    supabase.table("performance_vault").insert(batch).execute()
+    progress_bar.progress(min((i + batch_size) / total_records, 1.0))
+
+df_fuel_only = df_processed[df_processed["annual_fuel_cost"] > 0]
+summary_msg = f"Analysis Complete: {auto_healed_count} records healed, {mismatch_count} Frankenstein brands corrected."
+if hallucination_count > 0:
+    summary_msg += f"{hallucination_count} hallucinated models detected and flagged."
+st.info(summary_msg)
+
+m1, m2 = st.columns(2)
+m1.metric("Total Fleet Fuel Spend", f"${df_fuel_only['annual_fuel_cost'].sum():,.0f}")
+m2.metric("Avg Fleet MPG (Fuel)", f"{df_fuel_only['Predicted_MPG'].mean():.1f}")
+
+def determine_source(row):
+    status = row.get('Data_Status')
+    if status == "Repaired": return "Auto-Healed"
+    if status == "Corrected": return "System Corrected"
+    if status == "Rejected": return "Rejected (Fake Model)"
+    return "User-Input"
+
+df_processed['Data Source'] = df_processed.apply(determine_source, axis=1)
+fuel_ui_map = {1: "Petrol", 2: "Diesel", 3: "Ethanol/Hybrid", 4: "Natural Gas", 0: "Premium/Electric"}
+df_processed['Fuel Type'] = df_processed['Fuel Type'].map(lambda x: fuel_ui_map.get(x, "Other"))
+
+def smart_decode_trans(row):
+    code = row['Transmission']
+    original = str(row['Trans_Clean']).upper()
+    if code == 2: return "CVT"
+    if code == 1: return "Manual"
+    if "DIRECT" in original or "SINGLE" in original: return "Direct Drive"
+    return "Automatic"
+
+df_processed['Transmission'] = df_processed.apply(smart_decode_trans, axis=1)
+
+cols_to_hide = ['Data_Status', 'Auto_healed', 'Trans_Clean']
+final_view = df_processed.drop(columns=[c for c in cols_to_hide if c in df_processed.columns])
+st.dataframe(final_view, use_container_width=True)
+
+render_fleet_visuals(df_processed)
+fleet_insights = generate_strategic_insights(df_processed)
+for insight in fleet_insights:
+    st.info(f"{insight}")
+
+log_fleet_session_silent(df_fuel_only["Predicted_MPG"].mean(), len(df_processed), df_fuel_only["annual_fuel_cost"].sum(), st.session_state.company_id, insights=" | ".join(fleet_insights))
+
+report_data = create_pdf(df_processed, insights=fleet_insights)
+st.download_button(label="Download Executive Strategy Report (PDF)", data=report_data, file_name=f"Fleet_Strategy_{datetime.date.today()}.pdf", mime="application/pdf")
