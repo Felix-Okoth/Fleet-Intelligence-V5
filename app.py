@@ -64,7 +64,8 @@ def verify_and_learn_vehicle(make, model, supabase_client, engine_size=None, fue
     """
     1. Checks local Ground Truth.
     2. If missing, calls NHTSA API.
-    3. If API confirms, 'Learns' by saving to ground_truth_fleet AND logs to vehicle_ghost_specs.
+    3. If API confirms, 'Learns' by saving to ground_truth_fleet.
+    4. OVERRIDE: If API fails or model is missing, allows fallback to manual input for prediction continuity.
     """
     make_clean = str(make).strip().upper()
     model_clean = str(model).strip().upper()
@@ -97,7 +98,7 @@ def verify_and_learn_vehicle(make, model, supabase_client, engine_size=None, fue
                 "transmission": transmission
             }, on_conflict="make,model").execute()
 
-            # STEP 4: Ghost Logging - Land the raw API data for verification audit
+            # STEP 4: Ghost Logging
             supabase_client.table("vehicle_ghost_specs").insert({
                 "raw_json": data, 
                 "status": "verified_and_learned",
@@ -106,15 +107,17 @@ def verify_and_learn_vehicle(make, model, supabase_client, engine_size=None, fue
 
             return True, f"Learned: {make_clean} {model_clean} is a valid vehicle."
         else:
-            # Log the failure to ghost specs to track attempted hallucinations
+            # OVERRIDE: API Mismatch - Log but allow prediction
             supabase_client.table("vehicle_ghost_specs").insert({
-                "status": "hallucination_blocked",
+                "status": "api_mismatch_fallback",
                 "model_attempted": model_clean,
                 "processed_at": datetime.datetime.now(EAT).isoformat()
             }).execute()
-            return False, f"Hallucination Alert: {model} is not a valid model for {make}."
+            return True, f"Fallback Mode: {model_clean} not found in API. Proceeding with manual specs."
+
     except Exception as e:
-        return False, f"Connection Error: Could not verify {make} {model}"
+        # OVERRIDE: Connection Error - Allow prediction
+        return True, f"Offline Mode: API unreachable. Using manual input for {make} {model}"
 
 # --- MULTI-TENANT LOGGING FUNCTIONS ---
 def log_performance_metric_silent(make, rnn_mpg, physics_mpg, variance, company_id):
@@ -152,7 +155,7 @@ def log_fleet_session_silent(avg_mpg, asset_count, fuel_cost, company_id, insigh
 
 # ===========================================
 # ANALYTICS & INSIGHTS
-# ===========================================             
+# ===========================================              
 
 def render_fleet_visuals(df):
     st.subheader("Fleet Performance Analytics")
