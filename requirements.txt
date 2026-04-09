@@ -12,3 +12,4 @@ cryptography
 supabase
 gotrue
 postgrest
+requests==2.31.0
