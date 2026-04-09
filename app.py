@@ -12,6 +12,7 @@ import io
 import math  # Added for JSON compliance checks
 from cryptography.fernet import Fernet
 from supabase import create_client, Client
+import requests  # Required for the Smart Truth API logic
 
 # ==========================================
 # SUPABASE & CRYPTOGRAPHY INITIALIZATION
@@ -58,6 +59,46 @@ def auto_heal_specs(make, model):
     except Exception:
         return None
 
+# --- INTEGRATION: SMART TRUTH LOGIC (API + LEARNING) ---
+def verify_and_learn_vehicle(make, model, supabase_client):
+    """
+    1. Checks local Ground Truth.
+    2. If missing, calls NHTSA API.
+    3. If API confirms, 'Learns' the car by saving it to Ground Truth.
+    """
+    make_clean = str(make).strip().upper()
+    model_clean = str(model).strip().upper()
+
+    # STEP 1: Check Supabase Ground Truth
+    try:
+        result = supabase_client.table("ground_truth_fleet").select("*").ilike("make", make_clean).ilike("model", model_clean).execute()
+        if result.data:
+            return True, "Verified (Known Model)"
+    except Exception:
+        pass # Table might not exist yet or connection blip, proceed to API
+
+    # STEP 2: The Learning Phase (Call NHTSA API)
+    api_url = f"https://vpic.nhtsa.dot.gov/api/vehicles/GetModelsForMake/{make_clean}?format=json"
+    
+    try:
+        response = requests.get(api_url, timeout=10)
+        data = response.json()
+        results = data.get('Results', [])
+        real_models = [r['Model_Name'].upper() for r in results]
+
+        if model_clean in real_models:
+            # STEP 3: Learning - Save this new verified car to your Supabase table
+            supabase_client.table("ground_truth_fleet").insert({
+                "make": make_clean,
+                "model": model_clean,
+                "body_type": "Learned from API" 
+            }).execute()
+            return True, f"Learned: {make_clean} {model_clean} is a valid vehicle."
+        else:
+            return False, f"Hallucination Alert: {model} is not a valid model for {make}."
+    except Exception as e:
+        return False, f"Connection Error: Could not verify {make} {model}"
+
 # --- MULTI-TENANT LOGGING FUNCTIONS ---
 def log_performance_metric_silent(make, rnn_mpg, physics_mpg, variance, company_id):
     enc_make = encrypt_data(make)
@@ -94,7 +135,7 @@ def log_fleet_session_silent(avg_mpg, asset_count, fuel_cost, company_id, insigh
 
 # ===========================================
 # ANALYTICS & INSIGHTS
-# ===========================================              
+# ===========================================             
 
 def render_fleet_visuals(df):
     st.subheader("Fleet Performance Analytics")
@@ -454,6 +495,7 @@ elif admin_mode == "App Dashboard":
         c1, c2 = st.columns(2)
         with c1:
             v_make = st.text_input("Vehicle Make", "Toyota")
+            v_model = st.text_input("Model", "Corolla") # Added for Smart Truth validation
             eng = st.number_input("Engine Size (L)", 0.0, 10.0, 2.0, step=0.1)
             cyl = st.number_input("Cylinders", 0, 16, 4, step=1)
             fuel_t = st.selectbox("Fuel Type", ["Regular", "Premium", "Diesel", "Ethanol", "Natural Gas", "Electric"])
@@ -470,20 +512,29 @@ elif admin_mode == "App Dashboard":
             if cyl == 0 or fuel_t == "Electric" or eng == 0:
                 st.warning("Electric Vehicle detected. Predictions are disabled until the April 13th update.")
             else:
-                single_row = pd.DataFrame([{
-                    "Model Year": v_year, "Make": v_make, "Engine Size": eng, 
-                    "Cylinders": cyl, "Fuel Type": fuel_t, "Vehicle Class": v_class, 
-                    "Transmission": v_trans, "CO2 Emissions": co2, 
-                    "City (L/100km)": city_l, "Hwy (L/100km)": hwy_l, "Comb (L/100km)": comb
-                }])
-                cleaned_df = nlp_translator(single_row)
-                ai_in_raw = prepare_ai_input(cleaned_df, scaler_X)
-                rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1) 
-                preds_log = model.predict(rnn_in)
-                raw_mpg = np.expm1(scaler_y.inverse_transform(preds_log))[0][0]
-                display_mpg = apply_hybrid_reality_logic(raw_mpg, v_year, v_make, v_class, fuel_t, eng, cyl, co2)
-                st.metric(f"{v_year} {v_make} Efficiency", f"{display_mpg:.2f} MPG")
-                st.success(f"Rating: {classify_efficiency(display_mpg)}")
+                # INTEGRATION: Call Smart Truth logic before prediction
+                is_valid, validation_msg = verify_and_learn_vehicle(v_make, v_model, supabase)
+                
+                if not is_valid:
+                    st.error(validation_msg)
+                else:
+                    if "Learned" in validation_msg:
+                        st.success(validation_msg)
+                    
+                    single_row = pd.DataFrame([{
+                        "Model Year": v_year, "Make": v_make, "Model": v_model,
+                        "Engine Size": eng, "Cylinders": cyl, "Fuel Type": fuel_t, 
+                        "Vehicle Class": v_class, "Transmission": v_trans, "CO2 Emissions": co2, 
+                        "City (L/100km)": city_l, "Hwy (L/100km)": hwy_l, "Comb (L/100km)": comb
+                    }])
+                    cleaned_df = nlp_translator(single_row)
+                    ai_in_raw = prepare_ai_input(cleaned_df, scaler_X)
+                    rnn_in = np.repeat(ai_in_raw[:, np.newaxis, :], 5, axis=1) 
+                    preds_log = model.predict(rnn_in)
+                    raw_mpg = np.expm1(scaler_y.inverse_transform(preds_log))[0][0]
+                    display_mpg = apply_hybrid_reality_logic(raw_mpg, v_year, v_make, v_class, fuel_t, eng, cyl, co2)
+                    st.metric(f"{v_year} {v_make} Efficiency", f"{display_mpg:.2f} MPG")
+                    st.success(f"Rating: {classify_efficiency(display_mpg)}")
 
     elif mode == "Bulk Fleet Analytics":
         st.header("Enterprise Analytics Engine")
@@ -491,7 +542,6 @@ elif admin_mode == "App Dashboard":
         if file:
             df_raw = pd.read_csv(file) if file.name.lower().endswith('.csv') else pd.read_excel(file, engine='openpyxl')
             run_dataset_health_check(df_raw)
-            # Apply Ghost Synthesizer before processing
             df_processed = ghost_synthesizer(nlp_translator(df_raw.copy()))
 
             if st.button("Process Intelligence"):
@@ -504,11 +554,20 @@ elif admin_mode == "App Dashboard":
                     df_processed['Audit_Trail'] = ""
                     auto_healed_count = 0
                     mismatch_count = 0
+                    hallucination_count = 0
                     
                     for index, row in df_processed.iterrows():
                         notes = []
                         current_make = str(row.get('Make'))
                         current_model = str(row.get('Model'))
+                        
+                        # INTEGRATION: Smart Truth check for each row in Bulk
+                        is_valid, validation_msg = verify_and_learn_vehicle(current_make, current_model, supabase)
+                        if not is_valid:
+                            hallucination_count += 1
+                            df_processed.at[index, 'Data_Status'] = "Rejected"
+                            notes.append(validation_msg)
+                        
                         healed_specs = ref_lookup.get(current_model)
                         
                         if healed_specs:
@@ -517,19 +576,20 @@ elif admin_mode == "App Dashboard":
                                 df_processed.at[index, 'Make'] = ref_make
                                 notes.append(f"Sanity Check: Overwrote brand from '{current_make}' to '{ref_make}' to fix model mismatch.")
                                 mismatch_count += 1
-                                df_processed.at[index, 'Data_Status'] = "Corrected"
+                                if df_processed.at[index, 'Data_Status'] != "Rejected":
+                                    df_processed.at[index, 'Data_Status'] = "Corrected"
                             
                             if pd.isna(row.get('Engine Size')) or row.get('Engine Size') == 0:
                                 df_processed.at[index, 'Engine Size'] = healed_specs['engine_size']
                                 notes.append(f"Healed missing Engine Size to {healed_specs['engine_size']}L")
                                 auto_healed_count += 1
-                                if df_processed.at[index, 'Data_Status'] != "Corrected":
+                                if df_processed.at[index, 'Data_Status'] not in ["Corrected", "Rejected"]:
                                     df_processed.at[index, 'Data_Status'] = "Repaired"
-                                
+                            
                             if pd.isna(row.get('Cylinders')):
                                 df_processed.at[index, 'Cylinders'] = healed_specs['cylinders']
                                 notes.append(f"Healed missing Cylinders")
-                                if df_processed.at[index, 'Data_Status'] != "Corrected":
+                                if df_processed.at[index, 'Data_Status'] not in ["Corrected", "Rejected"]:
                                     df_processed.at[index, 'Data_Status'] = "Repaired"
                         
                         df_processed.at[index, 'Audit_Trail'] = " | ".join(notes)
@@ -548,6 +608,12 @@ elif admin_mode == "App Dashboard":
 
                     for i, p in enumerate(raw_preds):
                         row = df_processed.iloc[i]
+                        # Exclude Rejected hallucinations from calculations
+                        if row.get('Data_Status') == "Rejected":
+                            final_mpg.append(np.nan)
+                            annual_costs.append(0.0)
+                            continue
+
                         is_ev = (row.get("Cylinders") == 0) or (row.get("Fuel Type") == 0) or (row.get("Engine Size") == 0)
                         
                         if is_ev:
@@ -568,7 +634,6 @@ elif admin_mode == "App Dashboard":
                         
                         was_corrected = 1 if not pd.isna(mpg_val) and (abs(mpg_val - chem_truth) / max(chem_truth, 1)) > 0.12 else 0
 
-                        # Payload creation
                         payload = {
                             "company_id": st.session_state.company_id,
                             "timestamp": datetime.datetime.now(EAT).isoformat(),
@@ -581,7 +646,6 @@ elif admin_mode == "App Dashboard":
                             "Efficiency_Rating": str(classify_efficiency(mpg_val))
                         }
                         
-                        # Apply Intelligent Validator before adding to bulk send
                         if intelligent_validator(payload):
                             bulk_data_to_send.append(payload)
                         df_processed.at[i, 'was_corrected'] = was_corrected
@@ -599,7 +663,10 @@ elif admin_mode == "App Dashboard":
                         progress_bar.progress(min((i + batch_size) / total_records, 1.0))
 
                     df_fuel_only = df_processed[df_processed["annual_fuel_cost"] > 0]
-                    st.info(f"Analysis Complete: {auto_healed_count} records healed, {mismatch_count} Frankenstein brands corrected.")
+                    summary_msg = f"Analysis Complete: {auto_healed_count} records healed, {mismatch_count} Frankenstein brands corrected."
+                    if hallucination_count > 0:
+                        summary_msg += f"{hallucination_count} hallucinated models detected and flagged."
+                    st.info(summary_msg)
                     
                     m1, m2 = st.columns(2)
                     m1.metric("Total Fleet Fuel Spend", f"${df_fuel_only['annual_fuel_cost'].sum():,.0f}")
@@ -609,6 +676,7 @@ elif admin_mode == "App Dashboard":
                         status = row.get('Data_Status')
                         if status == "Repaired": return "Auto-Healed"
                         if status == "Corrected": return "System Corrected"
+                        if status == "Rejected": return "Rejected (Fake Model)"
                         return "User-Input"
 
                     df_processed['Data Source'] = df_processed.apply(determine_source, axis=1)
