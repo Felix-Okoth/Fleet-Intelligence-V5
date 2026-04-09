@@ -59,12 +59,12 @@ def auto_heal_specs(make, model):
     except Exception:
         return None
 
-# --- INTEGRATION: SMART TRUTH LOGIC (API + LEARNING) ---
-def verify_and_learn_vehicle(make, model, supabase_client):
+# --- UPDATED: SMART TRUTH LOGIC (API + LEARNING + GHOST LOGGING) ---
+def verify_and_learn_vehicle(make, model, supabase_client, engine_size=None, fuel_type=None, transmission=None):
     """
     1. Checks local Ground Truth.
     2. If missing, calls NHTSA API.
-    3. If API confirms, 'Learns' the car by saving it to Ground Truth.
+    3. If API confirms, 'Learns' by saving to ground_truth_fleet AND logs to vehicle_ghost_specs.
     """
     make_clean = str(make).strip().upper()
     model_clean = str(model).strip().upper()
@@ -75,7 +75,7 @@ def verify_and_learn_vehicle(make, model, supabase_client):
         if result.data:
             return True, "Verified (Known Model)"
     except Exception:
-        pass # Table might not exist yet or connection blip, proceed to API
+        pass 
 
     # STEP 2: The Learning Phase (Call NHTSA API)
     api_url = f"https://vpic.nhtsa.dot.gov/api/vehicles/GetModelsForMake/{make_clean}?format=json"
@@ -87,14 +87,31 @@ def verify_and_learn_vehicle(make, model, supabase_client):
         real_models = [r['Model_Name'].upper() for r in results]
 
         if model_clean in real_models:
-            # STEP 3: Learning - Save this new verified car to your Supabase table
-            supabase_client.table("ground_truth_fleet").insert({
+            # STEP 3: Learning - Save to Ground Truth
+            supabase_client.table("ground_truth_fleet").upsert({
                 "make": make_clean,
                 "model": model_clean,
-                "body_type": "Learned from API" 
+                "body_type": "Learned from API",
+                "engine_size": engine_size,
+                "fuel_type": fuel_type,
+                "transmission": transmission
+            }, on_conflict="make,model").execute()
+
+            # STEP 4: Ghost Logging - Land the raw API data for verification audit
+            supabase_client.table("vehicle_ghost_specs").insert({
+                "raw_json": data, 
+                "status": "verified_and_learned",
+                "processed_at": datetime.datetime.now(EAT).isoformat()
             }).execute()
+
             return True, f"Learned: {make_clean} {model_clean} is a valid vehicle."
         else:
+            # Log the failure to ghost specs to track attempted hallucinations
+            supabase_client.table("vehicle_ghost_specs").insert({
+                "status": "hallucination_blocked",
+                "model_attempted": model_clean,
+                "processed_at": datetime.datetime.now(EAT).isoformat()
+            }).execute()
             return False, f"Hallucination Alert: {model} is not a valid model for {make}."
     except Exception as e:
         return False, f"Connection Error: Could not verify {make} {model}"
@@ -512,8 +529,8 @@ elif admin_mode == "App Dashboard":
             if cyl == 0 or fuel_t == "Electric" or eng == 0:
                 st.warning("Electric Vehicle detected. Predictions are disabled until the April 13th update.")
             else:
-                # INTEGRATION: Call Smart Truth logic before prediction
-                is_valid, validation_msg = verify_and_learn_vehicle(v_make, v_model, supabase)
+                # INTEGRATION UPDATED: Single Vehicle Connection
+                is_valid, validation_msg = verify_and_learn_vehicle(v_make, v_model, supabase, eng, fuel_t, v_trans)
                 
                 if not is_valid:
                     st.error(validation_msg)
@@ -561,8 +578,9 @@ elif admin_mode == "App Dashboard":
                         current_make = str(row.get('Make'))
                         current_model = str(row.get('Model'))
                         
-                        # INTEGRATION: Smart Truth check for each row in Bulk
-                        is_valid, validation_msg = verify_and_learn_vehicle(current_make, current_model, supabase)
+                        # INTEGRATION UPDATED: Bulk Fleet Connection
+                        is_valid, validation_msg = verify_and_learn_vehicle(current_make, current_model, supabase, row.get('Engine Size'), row.get('Fuel Type'), row.get('Transmission'))
+                        
                         if not is_valid:
                             hallucination_count += 1
                             df_processed.at[index, 'Data_Status'] = "Rejected"
@@ -653,6 +671,8 @@ elif admin_mode == "App Dashboard":
                     df_processed["Predicted_MPG"] = final_mpg
                     df_processed["annual_fuel_cost"] = annual_costs
                     df_processed["Efficiency_Rating"] = df_processed["Predicted_MPG"].apply(classify_efficiency)
+                    
+                    # Rest of the processing (batching and visualization) would follow here
                     
                     batch_size = 500
                     total_records = len(bulk_data_to_send)
