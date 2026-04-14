@@ -413,7 +413,7 @@ def classify_efficiency(mpg):
 # 3. INTERFACE (UPDATED WITH ADMIN PORTAL)
 with st.sidebar:
     st.title("Fleet Intelligence")
-    admin_mode = st.selectbox("Management Console:", ["App Dashboard", "Admin Portal", "Data Audit Trail"], index=0)
+    admin_mode = st.selectbox("Management Console:", ["App Dashboard", "Admin Portal"], index=0)
     st.markdown("---")
     
     if admin_mode == "App Dashboard":
@@ -446,7 +446,7 @@ if admin_mode == "Admin Portal":
             st.markdown("### Gemini 1.5 Flash: Reliability Verdict")
             st.info("**Verdict:** Prediction reliability is verified. The current LSTM weights align with physical fuel combustion constraints for the 2024-2026 vehicle dataset.")
 
-        # REPLACED: System Privileges and Fleet Analytics are gone. Audit Trail is now here.
+        # Audit Trail.
         elif admin_task == "Audit Trail":
             st.subheader("Enterprise Data Ledger")
             st.info("Permanent, immutable logs of system sessions.")
