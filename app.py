@@ -187,18 +187,30 @@ def check_password():
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
         st.session_state.company_id = None
+        st.session_state.is_admin = False
 
     if not st.session_state.authenticated:
         st.sidebar.title("Secure Login")
         user_pwd = st.sidebar.text_input("Corporate Access Key", type="password")
         if st.sidebar.button("Access Platform"):
+            # Admin credentials — admin can see all sections
+            admin_credentials = {
+                "admin2026": "00000000-0000-0000-0000-000000000000",
+            }
+            # Regular company credentials
             credentials = {
                 "fleet2026": "77777777-7777-7777-7777-777777777777", 
                 "partner2026": "88888888-8888-8888-8888-888888888888" 
             }
-            if user_pwd in credentials:
+            if user_pwd in admin_credentials:
+                st.session_state.authenticated = True
+                st.session_state.company_id = admin_credentials[user_pwd]
+                st.session_state.is_admin = True
+                st.rerun()
+            elif user_pwd in credentials:
                 st.session_state.authenticated = True
                 st.session_state.company_id = credentials[user_pwd]
+                st.session_state.is_admin = False
                 st.rerun()
             else:
                 st.sidebar.error("Invalid Key")
@@ -412,7 +424,14 @@ def classify_efficiency(mpg):
 
 # 3. INTERFACE
 with st.sidebar:
-    admin_mode = st.selectbox("Management Console:", ["App Dashboard", "Data Audit Trail", "AI Reliability Report"], index=0)
+    # Build navigation options based on role
+    if st.session_state.get("is_admin", False):
+        nav_options = ["App Dashboard", "Data Audit Trail", "AI Reliability Report"]
+        st.markdown("**Admin Console**", unsafe_allow_html=False)
+    else:
+        nav_options = ["App Dashboard"]
+
+    admin_mode = st.selectbox("Management Console:", nav_options, index=0)
     st.markdown("---")
     st.title(f"Fleet Intel")
     if admin_mode == "App Dashboard":
@@ -430,15 +449,47 @@ if st.query_params.get("dev_mode") == "true":
                 st.dataframe(vault)
 
 if admin_mode == "Data Audit Trail":
+    # Admin-only guard (belt-and-suspenders, sidebar already restricts access)
+    if not st.session_state.get("is_admin", False):
+        st.error("Access Denied. This section is restricted to administrators.")
+        st.stop()
+
     st.header("Enterprise Data Ledger")
-    st.info("Permanent, immutable logs of your company sessions.")
-    res = supabase.table("audit_ledger").select("*").eq("company_id", st.session_state.company_id).order("timestamp", desc=True).execute()
+    st.info("Permanent, immutable logs of all company sessions. Sequential session numbers are per-company for confidentiality.")
+
+    # Fetch all records for the admin (all companies)
+    res = supabase.table("audit_ledger").select("*").order("timestamp", desc=False).execute()
     if res.data:
-        st.dataframe(pd.DataFrame(res.data), use_container_width=True, hide_index=True)
+        df_audit = pd.DataFrame(res.data)
+
+        # Add per-company sequential session number (so Company A sees 1,2,3... and Company B sees 1,2,3...)
+        # This hides cross-company global numbering
+        df_audit = df_audit.sort_values("timestamp")
+        df_audit["Session #"] = df_audit.groupby("company_id").cumcount() + 1
+
+        # Reorder so Session # is the first column
+        cols = ["Session #"] + [c for c in df_audit.columns if c != "Session #"]
+        df_audit = df_audit[cols]
+
+        # Admin sees all companies; show company selector for drill-down
+        all_companies = ["All Companies"] + sorted(df_audit["company_id"].unique().tolist())
+        selected_company = st.selectbox("Filter by Company:", all_companies)
+
+        if selected_company != "All Companies":
+            df_display = df_audit[df_audit["company_id"] == selected_company].copy()
+        else:
+            df_display = df_audit.copy()
+
+        st.dataframe(df_display.sort_values("timestamp", ascending=False), use_container_width=True, hide_index=True)
     else:
-        st.warning("Audit ledger is currently empty for your company.")
+        st.warning("Audit ledger is currently empty.")
 
 elif admin_mode == "AI Reliability Report":
+    # Admin-only guard
+    if not st.session_state.get("is_admin", False):
+        st.error("Access Denied. This section is restricted to administrators.")
+        st.stop()
+
     st.header("Model Integrity & Confidence")
     c1, c2 = st.columns(2)
     c1.metric("Prediction Stability", "94.2%", "0.2% Variance")
