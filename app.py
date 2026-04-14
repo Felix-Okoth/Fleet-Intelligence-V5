@@ -420,8 +420,7 @@ with st.sidebar:
         mode = st.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"])
     else:
         mode = None
-
-# --- NEW: ADMIN PORTAL SECTION ---
+# --- REWRITTEN: ADMIN PORTAL SECTION ---
 if admin_mode == "Admin Portal":
     st.header("Administrator Governance Portal")
     admin_pwd = st.text_input("Enter Admin Passkey", type="password")
@@ -429,8 +428,9 @@ if admin_mode == "Admin Portal":
     if admin_pwd == "ADMIN2026":
         st.success("Admin Session Active")
         
+        # REPLACED: Only two options now
         admin_task = st.radio("Select Administrative Task:", 
-                              ["AI Reliability Report", "", "System Privileges"])
+                              ["AI Reliability Report", "Audit Trail"])
         
         if admin_task == "AI Reliability Report":
             st.subheader("Model Reliability & Confidence Report")
@@ -438,40 +438,34 @@ if admin_mode == "Admin Portal":
             c1.metric("RNN Confidence Score", "94.2%", "Optimal")
             c2.metric("Inference Stability", "High")
             
-            # Reliability Graphics (Moved from main dashboard for XAI governance)
             epochs = np.arange(1, 101)
             loss = 0.5 * np.exp(-epochs/25) + 0.05 + np.random.normal(0, 0.005, 100)
             fig_rel = px.line(x=epochs, y=loss, title="Neural Network Training Loss (Stability Audit)", template="plotly_dark")
             st.plotly_chart(fig_rel, use_container_width=True)
             
-            st.markdown("###Gemini 1.5 Flash: Reliability Verdict")
+            st.markdown("### Gemini 1.5 Flash: Reliability Verdict")
             st.info("**Verdict:** Prediction reliability is verified. The current LSTM weights align with physical fuel combustion constraints for the 2024-2026 vehicle dataset.")
-        elif admin_task == "Fleet Analytics Oversight":
 
-            st.subheader("Executive Global Analytics")
-
-            st.write("This section monitors cross-company performance trends.")
-
-            st.button("Download Global Audit Ledger (CSV)")    
+        # REPLACED: System Privileges and Fleet Analytics are gone. Audit Trail is now here.
+        elif admin_task == "Audit Trail":
+            st.subheader("Enterprise Data Ledger")
+            st.info("Permanent, immutable logs of system sessions.")
             
-        elif admin_task == "System Privileges":
-            st.subheader("System Control & Governance")
-            st.write("Manage model versions and API security keys.")
-            st.toggle("Enable Ghost Signal Diagnostics")
-            st.button("Flush Performance Vault (DPA Compliance)")
+            # This is your existing logic moved inside the Admin check
+            try:
+                res = supabase.table("audit_ledger").select("*").eq("company_id", st.session_state.company_id).order("timestamp", desc=True).execute()
+                if res.data:
+                    st.dataframe(pd.DataFrame(res.data), use_container_width=True, hide_index=True)
+                else:
+                    st.warning("Audit ledger is currently empty for your company.")
+            except Exception as e:
+                st.error(f"Error fetching ledger: {e}")
 
     elif admin_pwd != "":
         st.error("Invalid Administrative Credentials.")
 
-# --- DATA AUDIT TRAIL VIEW ---
-elif admin_mode == "Data Audit Trail":
-    st.header("Enterprise Data Ledger")
-    st.info("Permanent, immutable logs of your company sessions.")
-    res = supabase.table("audit_ledger").select("*").eq("company_id", st.session_state.company_id).order("timestamp", desc=True).execute()
-    if res.data:
-        st.dataframe(pd.DataFrame(res.data), use_container_width=True, hide_index=True)
-    else:
-        st.warning("Audit ledger is currently empty for your company.")
+# Note: You can now delete the separate "elif admin_mode == 'Data Audit Trail':" 
+# block entirely since it is now inside the Admin Portal under "Audit Trail".
 # Main Dashboard
 elif admin_mode == "App Dashboard":
     if mode == "Single Vehicle":
