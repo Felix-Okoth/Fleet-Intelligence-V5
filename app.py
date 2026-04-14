@@ -642,7 +642,7 @@ elif admin_mode == "App Dashboard":
 
                     df_processed['Transmission'] = df_processed.apply(smart_decode_trans, axis=1)
 
-                    cols_to_hide = ['Data_Status', 'Auto_healed', 'Trans_Clean','ghost_signal']
+                    cols_to_hide = ['Data_Status', 'Auto_healed', 'Trans_Clean','ghost_signal','Data Source']
                     final_view = df_processed.drop(columns=[c for c in cols_to_hide if c in df_processed.columns])
                     st.dataframe(final_view, use_container_width=True)
                     
