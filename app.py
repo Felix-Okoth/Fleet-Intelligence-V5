@@ -616,7 +616,12 @@ elif admin_mode == "App Dashboard":
                         progress_bar.progress(min((i + batch_size) / total_records, 1.0))
 
                     df_fuel_only = df_processed[df_processed["annual_fuel_cost"] > 0]
-                    st.info(f"Analysis Complete: {auto_healed_count} records healed, {mismatch_count} Frankenstein brands corrected.")
+                    # Calculate total corrections from the physics/AI variance check
+                    total_physics_healed = int(df_processed['was_corrected'].sum())
+                    # Combine initial repairs with physics-based corrections
+                    total_records_healed = auto_healed_count + total_physics_healed
+
+                    st.info(f"Analysis Complete: {total_records_healed} records healed, {mismatch_count} Frankenstein brands corrected.")
                     
                     m1, m2 = st.columns(2)
                     m1.metric("Total Fleet Fuel Spend", f"${df_fuel_only['annual_fuel_cost'].sum():,.0f}")
