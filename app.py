@@ -430,7 +430,7 @@ if admin_mode == "Admin Portal":
         st.success("Admin Session Active")
         
         admin_task = st.radio("Select Administrative Task:", 
-                              ["AI Reliability Report", "Fleet Analytics Oversight", "System Privileges"])
+                              ["AI Reliability Report", "Data Audit Trail", "System Privileges"])
         
         if admin_task == "AI Reliability Report":
             st.subheader("Model Reliability & Confidence Report")
@@ -446,11 +446,7 @@ if admin_mode == "Admin Portal":
             
             st.markdown("###Gemini 1.5 Flash: Reliability Verdict")
             st.info("**Verdict:** Prediction reliability is verified. The current LSTM weights align with physical fuel combustion constraints for the 2024-2026 vehicle dataset.")
-
-        elif admin_task == "Fleet Analytics Oversight":
-            st.subheader("Executive Global Analytics")
-            st.write("This section monitors cross-company performance trends.")
-            st.button("Download Global Audit Ledger (CSV)")
+            
             
         elif admin_task == "System Privileges":
             st.subheader("System Control & Governance")
@@ -462,7 +458,7 @@ if admin_mode == "Admin Portal":
         st.error("Invalid Administrative Credentials.")
 
 # --- DATA AUDIT TRAIL VIEW ---
-elif admin_mode == "Data Audit Trail":
+elif admin_task == "Data Audit Trail":
     st.header("Enterprise Data Ledger")
     st.info("Permanent, immutable logs of your company sessions.")
     res = supabase.table("audit_ledger").select("*").eq("company_id", st.session_state.company_id).order("timestamp", desc=True).execute()
@@ -470,8 +466,7 @@ elif admin_mode == "Data Audit Trail":
         st.dataframe(pd.DataFrame(res.data), use_container_width=True, hide_index=True)
     else:
         st.warning("Audit ledger is currently empty for your company.")
-
-# --- MAIN APP DASHBOARD (ORIGINAL LOGIC) ---
+# Main Dashboard
 elif admin_mode == "App Dashboard":
     if mode == "Single Vehicle":
         st.header("Vehicle Profile")
