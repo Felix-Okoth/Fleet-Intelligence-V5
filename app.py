@@ -184,36 +184,53 @@ def run_dataset_health_check(df):
 st.set_page_config(page_title="Enterprise Fleet Intelligence", layout="wide")
 
 def check_password():
+    """
+    Authentication system:
+    - Admin: hardcoded via st.secrets["ADMIN_KEY"] — gets full access to all sections.
+    - Regular users: looked up in Supabase 'company_users' table by username + password.
+      Table columns: username (text), password (text), company_id (uuid), display_name (text).
+    """
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
         st.session_state.company_id = None
         st.session_state.is_admin = False
+        st.session_state.display_name = ""
 
     if not st.session_state.authenticated:
         st.sidebar.title("Secure Login")
+        username_input = st.sidebar.text_input("Username")
         user_pwd = st.sidebar.text_input("Corporate Access Key", type="password")
+
         if st.sidebar.button("Access Platform"):
-            # Admin credentials — admin can see all sections
-            admin_credentials = {
-                "admin2026": "00000000-0000-0000-0000-000000000000",
-            }
-            # Regular company credentials
-            credentials = {
-                "fleet2026": "77777777-7777-7777-7777-777777777777", 
-                "partner2026": "88888888-8888-8888-8888-888888888888" 
-            }
-            if user_pwd in admin_credentials:
+            # 1. Check hardcoded admin first
+            admin_key = st.secrets.get("ADMIN_KEY", "")
+            if user_pwd == admin_key and admin_key != "":
                 st.session_state.authenticated = True
-                st.session_state.company_id = admin_credentials[user_pwd]
+                st.session_state.company_id = "00000000-0000-0000-0000-000000000000"
                 st.session_state.is_admin = True
-                st.rerun()
-            elif user_pwd in credentials:
-                st.session_state.authenticated = True
-                st.session_state.company_id = credentials[user_pwd]
-                st.session_state.is_admin = False
+                st.session_state.display_name = "Administrator"
                 st.rerun()
             else:
-                st.sidebar.error("Invalid Key")
+                # 2. Look up user in Supabase company_users table
+                try:
+                    res = supabase.table("company_users") \
+                        .select("username, password, company_id, display_name") \
+                        .eq("username", username_input.strip()) \
+                        .execute()
+                    if res.data:
+                        user_record = res.data[0]
+                        if user_record["password"] == user_pwd:
+                            st.session_state.authenticated = True
+                            st.session_state.company_id = user_record["company_id"]
+                            st.session_state.is_admin = False
+                            st.session_state.display_name = user_record.get("display_name", username_input)
+                            st.rerun()
+                        else:
+                            st.sidebar.error("Invalid username or access key.")
+                    else:
+                        st.sidebar.error("Invalid username or access key.")
+                except Exception as e:
+                    st.sidebar.error(f"Login error: {e}")
         return False
     return True
 
@@ -424,16 +441,25 @@ def classify_efficiency(mpg):
 
 # 3. INTERFACE
 with st.sidebar:
-    # Build navigation options based on role
+    # Logout button at the top
+    display = st.session_state.get("display_name", "User")
+    st.markdown(f"👤 **{display}**")
+    if st.button("🚪 Logout"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+    st.markdown("---")
+
+    # Role-aware navigation — admin sees all, regular users see only App Dashboard
     if st.session_state.get("is_admin", False):
+        st.markdown("🔐 **Admin Console**")
         nav_options = ["App Dashboard", "Data Audit Trail", "AI Reliability Report"]
-        st.markdown("**Admin Console**", unsafe_allow_html=False)
     else:
         nav_options = ["App Dashboard"]
 
     admin_mode = st.selectbox("Management Console:", nav_options, index=0)
     st.markdown("---")
-    st.title(f"Fleet Intel")
+    st.title("Fleet Intel")
     if admin_mode == "App Dashboard":
         mode = st.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"])
     else:
@@ -449,29 +475,28 @@ if st.query_params.get("dev_mode") == "true":
                 st.dataframe(vault)
 
 if admin_mode == "Data Audit Trail":
-    # Admin-only guard (belt-and-suspenders, sidebar already restricts access)
+    # Admin-only guard
     if not st.session_state.get("is_admin", False):
-        st.error("Access Denied. This section is restricted to administrators.")
+        st.error("🔒 Access Denied. This section is restricted to administrators.")
         st.stop()
 
     st.header("Enterprise Data Ledger")
-    st.info("Permanent, immutable logs of all company sessions. Sequential session numbers are per-company for confidentiality.")
+    st.info("Permanent, immutable logs of all company sessions. Session numbers are private and sequential per company.")
 
-    # Fetch all records for the admin (all companies)
+    # Fetch ALL records across all companies
     res = supabase.table("audit_ledger").select("*").order("timestamp", desc=False).execute()
     if res.data:
         df_audit = pd.DataFrame(res.data)
-
-        # Add per-company sequential session number (so Company A sees 1,2,3... and Company B sees 1,2,3...)
-        # This hides cross-company global numbering
         df_audit = df_audit.sort_values("timestamp")
+
+        # Per-company sequential numbering — hides global IDs from any company
         df_audit["Session #"] = df_audit.groupby("company_id").cumcount() + 1
 
-        # Reorder so Session # is the first column
+        # Reorder so Session # is first
         cols = ["Session #"] + [c for c in df_audit.columns if c != "Session #"]
         df_audit = df_audit[cols]
 
-        # Admin sees all companies; show company selector for drill-down
+        # Company filter for admin drill-down
         all_companies = ["All Companies"] + sorted(df_audit["company_id"].unique().tolist())
         selected_company = st.selectbox("Filter by Company:", all_companies)
 
@@ -487,7 +512,7 @@ if admin_mode == "Data Audit Trail":
 elif admin_mode == "AI Reliability Report":
     # Admin-only guard
     if not st.session_state.get("is_admin", False):
-        st.error("Access Denied. This section is restricted to administrators.")
+        st.error("🔒 Access Denied. This section is restricted to administrators.")
         st.stop()
 
     st.header("Model Integrity & Confidence")
