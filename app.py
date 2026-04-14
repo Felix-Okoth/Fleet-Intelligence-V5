@@ -464,8 +464,6 @@ if admin_mode == "Admin Portal":
     elif admin_pwd != "":
         st.error("Invalid Administrative Credentials.")
 
-# Note: You can now delete the separate "elif admin_mode == 'Data Audit Trail':" 
-# block entirely since it is now inside the Admin Portal under "Audit Trail".
 # Main Dashboard
 elif admin_mode == "App Dashboard":
     if mode == "Single Vehicle":
@@ -644,7 +642,7 @@ elif admin_mode == "App Dashboard":
 
                     df_processed['Transmission'] = df_processed.apply(smart_decode_trans, axis=1)
 
-                    cols_to_hide = ['Data_Status', 'Auto_healed', 'Trans_Clean']
+                    cols_to_hide = ['Data_Status', 'Auto_healed', 'Trans_Clean','ghost_signal']
                     final_view = df_processed.drop(columns=[c for c in cols_to_hide if c in df_processed.columns])
                     st.dataframe(final_view, use_container_width=True)
                     
