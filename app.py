@@ -6,6 +6,7 @@ import joblib
 import os
 import datetime
 import random
+import uuid as uuid_lib
 import plotly.express as px
 from fpdf import FPDF
 import io
@@ -183,60 +184,113 @@ def run_dataset_health_check(df):
 # 1. SETUP & THEME
 st.set_page_config(page_title="Enterprise Fleet Intelligence", layout="wide")
 
+import uuid as uuid_lib
+
 def check_password():
     """
     Authentication system:
     - Admin: hardcoded via st.secrets["ADMIN_KEY"] — gets full access to all sections.
-    - Regular users: looked up in Supabase 'company_users' table by username + password.
-      Table columns: username (text), password (text), company_id (uuid), display_name (text).
+    - Regular users: registered & looked up in Supabase 'company_users' table.
+      Table columns: username (text), password (varchar), company_id (uuid), display_name (text).
     """
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
         st.session_state.company_id = None
         st.session_state.is_admin = False
         st.session_state.display_name = ""
+        st.session_state.is_active = True
 
     if not st.session_state.authenticated:
-        st.sidebar.title("Secure Login")
-        username_input = st.sidebar.text_input("Username")
-        user_pwd = st.sidebar.text_input("Corporate Access Key", type="password")
+        st.sidebar.title("Secure Access")
+        auth_tab = st.sidebar.radio("", ["Login", "Register"], horizontal=True)
 
-        if st.sidebar.button("Access Platform"):
-            # 1. Check hardcoded admin first
-            admin_key = st.secrets.get("ADMIN_KEY", "")
-            if user_pwd == admin_key and admin_key != "":
-                st.session_state.authenticated = True
-                st.session_state.company_id = "00000000-0000-0000-0000-000000000000"
-                st.session_state.is_admin = True
-                st.session_state.display_name = "Administrator"
-                st.rerun()
-            else:
-                # 2. Look up user in Supabase company_users table
-                try:
-                    res = supabase.table("company_users") \
-                        .select("username, password, company_id, display_name") \
-                        .eq("username", username_input.strip()) \
-                        .execute()
-                    if res.data:
-                        user_record = res.data[0]
-                        if user_record["password"] == user_pwd:
-                            st.session_state.authenticated = True
-                            st.session_state.company_id = user_record["company_id"]
-                            st.session_state.is_admin = False
-                            st.session_state.display_name = user_record.get("display_name", username_input)
-                            st.rerun()
+        if auth_tab == "Login":
+            st.sidebar.markdown("#### Sign In")
+            username_input = st.sidebar.text_input("Username", key="login_user")
+            user_pwd = st.sidebar.text_input("Corporate Access Key", type="password", key="login_pwd")
+
+            if st.sidebar.button("Access Platform", key="login_btn"):
+                # 1. Check admin credentials first
+                admin_key = st.secrets.get("ADMIN_KEY", "")
+                if user_pwd == admin_key and admin_key != "" and username_input.strip().lower() == "administrator":
+                    st.session_state.authenticated = True
+                    st.session_state.company_id = "00000000-0000-0000-0000-000000000000"
+                    st.session_state.is_admin = True
+                    st.session_state.display_name = "Administrator"
+                    st.rerun()
+                else:
+                    # 2. Look up in Supabase company_users table
+                    try:
+                        res = supabase.table("company_users") \
+                            .select("username, password, company_id, display_name, is_active") \
+                            .eq("username", username_input.strip()) \
+                            .execute()
+                        if res.data:
+                            user_record = res.data[0]
+                            # Check if account is deactivated by admin
+                            if not user_record.get("is_active", True):
+                                st.sidebar.error("Your account has been deactivated. Contact your administrator.")
+                            elif user_record["password"] == user_pwd:
+                                st.session_state.authenticated = True
+                                st.session_state.company_id = user_record["company_id"]
+                                st.session_state.is_admin = False
+                                st.session_state.display_name = user_record.get("display_name", username_input)
+                                st.rerun()
+                            else:
+                                st.sidebar.error("Invalid username or access key.")
                         else:
                             st.sidebar.error("Invalid username or access key.")
-                    else:
-                        st.sidebar.error("Invalid username or access key.")
-                except Exception as e:
-                    st.sidebar.error(f"Login error: {e}")
+                    except Exception as e:
+                        st.sidebar.error(f"Login error: {e}")
+
+        else:  # Register tab
+            st.sidebar.markdown("#### Create Account")
+            new_display = st.sidebar.text_input("Full Name / Company Name", key="reg_display")
+            new_user = st.sidebar.text_input("Choose a Username", key="reg_user")
+            new_pwd = st.sidebar.text_input("Create Access Key", type="password", key="reg_pwd")
+            confirm_pwd = st.sidebar.text_input("Confirm Access Key", type="password", key="reg_confirm")
+
+            if st.sidebar.button("Register & Access Platform", key="reg_btn"):
+                if not new_display.strip() or not new_user.strip() or not new_pwd:
+                    st.sidebar.error("All fields are required.")
+                elif new_pwd != confirm_pwd:
+                    st.sidebar.error("Access keys do not match.")
+                elif len(new_pwd) < 6:
+                    st.sidebar.error("Access key must be at least 6 characters.")
+                else:
+                    try:
+                        # Check username not already taken
+                        existing = supabase.table("company_users") \
+                            .select("username") \
+                            .eq("username", new_user.strip()) \
+                            .execute()
+                        if existing.data:
+                            st.sidebar.error("Username already taken. Please choose another.")
+                        else:
+                            new_company_id = str(uuid_lib.uuid4())
+                            supabase.table("company_users").insert({
+                                "username": new_user.strip(),
+                                "password": new_pwd,
+                                "company_id": new_company_id,
+                                "display_name": new_display.strip(),
+                                "is_active": True
+                            }).execute()
+                            # Auto-login after registration
+                            st.session_state.authenticated = True
+                            st.session_state.company_id = new_company_id
+                            st.session_state.is_admin = False
+                            st.session_state.display_name = new_display.strip()
+                            st.sidebar.success("Account created successfully!")
+                            st.rerun()
+                    except Exception as e:
+                        st.sidebar.error(f"Registration error: {e}")
+
         return False
     return True
 
 if not check_password():
     st.title("Enterprise Fleet Intelligence")
-    st.info("Please login via the sidebar to access AI Analytics.")
+    st.info("Please login or register via the sidebar to access AI Analytics.")
     st.stop()
 
 car_bg_url = "https://images.unsplash.com/photo-1503376780353-7e6692767b70?q=80&w=1920"
@@ -441,19 +495,18 @@ def classify_efficiency(mpg):
 
 # 3. INTERFACE
 with st.sidebar:
-    # Logout button at the top
     display = st.session_state.get("display_name", "User")
-    st.markdown(f"👤 **{display}**")
-    if st.button("🚪 Logout"):
+    st.markdown(f"**{display}**")
+    if st.button("Logout"):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
     st.markdown("---")
 
-    # Role-aware navigation — admin sees all, regular users see only App Dashboard
+    # Role-aware navigation
     if st.session_state.get("is_admin", False):
-        st.markdown("🔐 **Admin Console**")
-        nav_options = ["App Dashboard", "Data Audit Trail", "AI Reliability Report"]
+        st.markdown("**Admin Console**")
+        nav_options = ["App Dashboard", "Data Audit Trail", "AI Reliability Report", "👥 User Management"]
     else:
         nav_options = ["App Dashboard"]
 
@@ -477,7 +530,7 @@ if st.query_params.get("dev_mode") == "true":
 if admin_mode == "Data Audit Trail":
     # Admin-only guard
     if not st.session_state.get("is_admin", False):
-        st.error("🔒 Access Denied. This section is restricted to administrators.")
+        st.error("Access Denied. This section is restricted to administrators.")
         st.stop()
 
     st.header("Enterprise Data Ledger")
@@ -512,7 +565,7 @@ if admin_mode == "Data Audit Trail":
 elif admin_mode == "AI Reliability Report":
     # Admin-only guard
     if not st.session_state.get("is_admin", False):
-        st.error("🔒 Access Denied. This section is restricted to administrators.")
+        st.error("Access Denied. This section is restricted to administrators.")
         st.stop()
 
     st.header("Model Integrity & Confidence")
@@ -523,6 +576,82 @@ elif admin_mode == "AI Reliability Report":
     loss = 0.5 * np.exp(-epochs/25) + 0.05 + np.random.normal(0, 0.005, 100)
     fig_rel = px.line(x=epochs, y=loss, title="Neural Network Training Loss", template="plotly_dark")
     st.plotly_chart(fig_rel, use_container_width=True)
+
+
+elif admin_mode == "User Management":
+    if not st.session_state.get("is_admin", False):
+        st.error("Access Denied.")
+        st.stop()
+
+    st.header("User Access Management")
+    st.info("View all registered users, deactivate or reactivate their accounts, or add new ones.")
+
+    try:
+        res = supabase.table("company_users").select("username, display_name, company_id, is_active").execute()
+        users = res.data if res.data else []
+    except Exception as e:
+        st.error(f"Could not fetch users: {e}")
+        users = []
+
+    if not users:
+        st.warning("No registered users found in the company_users table.")
+    else:
+        st.markdown(f"**Total registered users: {len(users)}**")
+        st.markdown("---")
+        for user in users:
+            uname = user.get("username", "Unknown")
+            dname = user.get("display_name", "—")
+            cid = user.get("company_id", "—")
+            is_active = user.get("is_active", True)
+            col1, col2, col3, col4 = st.columns([3, 3, 2, 2])
+            col1.markdown(f"**{dname}**  \n`@{uname}`")
+            col2.markdown(f"<small>Company ID:<br><code>{str(cid)[:18]}...</code></small>", unsafe_allow_html=True)
+            status_label = "Active" if is_active else "Deactivated"
+            col3.markdown(f"**{status_label}**")
+            with col4:
+                if is_active:
+                    if st.button("Deactivate", key=f"deact_{uname}"):
+                        try:
+                            supabase.table("company_users").update({"is_active": False}).eq("username", uname).execute()
+                            st.success(f"@{uname} deactivated.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+                else:
+                    if st.button("Reactivate", key=f"react_{uname}"):
+                        try:
+                            supabase.table("company_users").update({"is_active": True}).eq("username", uname).execute()
+                            st.success(f"@{uname} reactivated.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+            st.divider()
+
+    with st.expander("➕ Manually Add a User"):
+        ma_display = st.text_input("Full Name / Company Name", key="ma_display")
+        ma_user_input = st.text_input("Username", key="ma_user")
+        ma_pwd = st.text_input("Access Key", type="password", key="ma_pwd")
+        if st.button("Create User", key="ma_create"):
+            if not ma_display.strip() or not ma_user_input.strip() or not ma_pwd:
+                st.error("All fields are required.")
+            else:
+                try:
+                    existing = supabase.table("company_users").select("username").eq("username", ma_user_input.strip()).execute()
+                    if existing.data:
+                        st.error("Username already exists.")
+                    else:
+                        new_cid = str(uuid_lib.uuid4())
+                        supabase.table("company_users").insert({
+                            "username": ma_user_input.strip(),
+                            "password": ma_pwd,
+                            "company_id": new_cid,
+                            "display_name": ma_display.strip(),
+                            "is_active": True
+                        }).execute()
+                        st.success(f"User @{ma_user_input.strip()} created!")
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
 elif admin_mode == "App Dashboard":
     if mode == "Single Vehicle":
