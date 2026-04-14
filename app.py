@@ -61,7 +61,7 @@ def auto_heal_specs(make, model):
 # --- MULTI-TENANT LOGGING FUNCTIONS ---
 def log_performance_metric_silent(make, rnn_mpg, physics_mpg, variance, company_id):
     enc_make = encrypt_data(make)
-    was_corrected = YES if variance > 0.12 else NO
+    was_corrected = 1 if variance > 0.12 else 0
     
     data = {
         "company_id": company_id,
