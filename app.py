@@ -20,32 +20,6 @@ url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
 
-def get_audit_data():
-    # 2. Fetch data from your 'audit_logs' table (replace with your actual table name)
-    response = supabase.table("audit_logs").select("*").execute()
-    
-    # Convert the JSON response to a Pandas DataFrame
-    if response.data:
-        df = pd.DataFrame(response.data)
-        # Convert DataFrame to CSV string
-        return df.to_csv(index=False).encode('utf-8')
-    return None
-
-# 3. The Streamlit UI Logic
-st.subheader("Fleet Analytics Oversight")
-
-csv_data = get_audit_data()
-
-if csv_data:
-    st.download_button(
-        label="Download the Global Audit Ledger",
-        data=csv_data,
-        file_name="global_audit_ledger.csv",
-        mime="text/csv",
-    )
-else:
-    st.warning("No audit logs found in the database.")
-
 # Define East African Time (UTC+3)
 EAT = datetime.timezone(datetime.timedelta(hours=3))
 
