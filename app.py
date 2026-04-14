@@ -433,7 +433,7 @@ if admin_mode == "Admin Portal":
                               ["AI Reliability Report", "Fleet Analytics Oversight", "System Privileges"])
         
         if admin_task == "AI Reliability Report":
-            st.subheader("🔍 Model Reliability & Confidence Report")
+            st.subheader("Model Reliability & Confidence Report")
             c1, c2 = st.columns(2)
             c1.metric("RNN Confidence Score", "94.2%", "Optimal")
             c2.metric("Inference Stability", "High")
