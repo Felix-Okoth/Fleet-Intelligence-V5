@@ -434,12 +434,6 @@ if admin_mode == "Admin Portal":
         
         if admin_task == "AI Reliability Report":
             st.subheader("Model Reliability & Confidence Report")
-            
-            # --- RESTORED SECURITY UI ---
-            # --- UPDATED CODE ---
-if admin_task == "AI Reliability Report":
-            st.subheader("Model Reliability & Confidence Report")
-            
             # --- RESTORED SECURITY UI ---
             st.markdown("System Security Status")
             if cipher:
