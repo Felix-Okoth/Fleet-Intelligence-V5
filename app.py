@@ -456,7 +456,7 @@ if admin_mode == "Admin Portal":
             fig_rel = px.line(x=epochs, y=loss, title="Neural Network Training Loss (Stability Audit)", template="plotly_dark")
             st.plotly_chart(fig_rel, use_container_width=True)
             
-            st.markdown("### Gemini 1.5 Flash: Reliability Verdict")
+            st.markdown("Reliability Verdict")
             st.info("**Verdict:** Prediction reliability is verified. The current LSTM weights align with physical fuel combustion constraints for the 2024-2026 vehicle dataset.")
 
         # Audit Trail.
