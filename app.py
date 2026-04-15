@@ -420,7 +420,7 @@ with st.sidebar:
         mode = st.radio("Navigation", ["Single Vehicle", "Bulk Fleet Analytics"])
     else:
         mode = None
-# --- REWRITTEN: ADMIN PORTAL SECTION ---
+# --- ADMIN PORTAL SECTION ---
 if admin_mode == "Admin Portal":
     st.header("Administrator Governance Portal")
     admin_pwd = st.text_input("Enter Admin Passkey", type="password")
@@ -434,9 +434,24 @@ if admin_mode == "Admin Portal":
         
         if admin_task == "AI Reliability Report":
             st.subheader("Model Reliability & Confidence Report")
+            
+            # --- RESTORED SECURITY UI ---
+            st.markdown("####System Security Status")
+            if cipher:
+                st.success("Fernet Encryption Engine: **Active**")
+                # Displaying the key fingerprint for administrative verification
+                key_preview = st.secrets["ENCRYPTION_KEY"]
+                st.code(f"Key Fingerprint: {key_preview[:6]}...{key_preview[-6:]}", language="text")
+            else:
+                st.error("Encryption Engine: **Offline**")
+            st.divider()
+
+            # Existing Reliability Metrics
             c1, c2 = st.columns(2)
             c1.metric("RNN Confidence Score", "94.2%", "Optimal")
             c2.metric("Inference Stability", "High")
+            
+            # [Rest of your Plotly and Gemini Verdict code]
             
             epochs = np.arange(1, 101)
             loss = 0.5 * np.exp(-epochs/25) + 0.05 + np.random.normal(0, 0.005, 100)
