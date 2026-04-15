@@ -437,10 +437,16 @@ if admin_mode == "Admin Portal":
             
             # --- RESTORED SECURITY UI ---
             # --- UPDATED CODE ---
-st.markdown("System Security Status")
-if cipher:
-    st.success("Fernet Encryption Engine: **Active**")
-
+if admin_task == "AI Reliability Report":
+            st.subheader("Model Reliability & Confidence Report")
+            
+            # --- RESTORED SECURITY UI ---
+            st.markdown("System Security Status")
+            if cipher:
+                st.success("Fernet Encryption Engine: **Active**")
+                # Displaying the key fingerprint for administrative verification
+                key_preview = st.secrets["ENCRYPTION_KEY"]
+                st.code(f"Key Fingerprint: {key_preview[:6]}...{key_preview[-6:]}", language="text")
             else:
                 st.error("Encryption Engine: **Offline**")
             st.divider()
@@ -449,6 +455,8 @@ if cipher:
             c1, c2 = st.columns(2)
             c1.metric("RNN Confidence Score", "94.2%", "Optimal")
             c2.metric("Inference Stability", "High")
+            
+            # ... [Rest of your Plotly and Gemini Verdict code] ...
             
             # [Rest of your Plotly and Gemini Verdict code]
             
