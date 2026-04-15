@@ -436,12 +436,11 @@ if admin_mode == "Admin Portal":
             st.subheader("Model Reliability & Confidence Report")
             
             # --- RESTORED SECURITY UI ---
-            st.markdown("System Security Status")
-            if cipher:
-                st.success("Fernet Encryption Engine: **Active**")
-                # Displaying the key fingerprint for administrative verification
-                key_preview = st.secrets["ENCRYPTION_KEY"]
-                st.code(f"Key Fingerprint: {key_preview[:6]}...{key_preview[-6:]}", language="text")
+            # --- UPDATED CODE ---
+st.markdown("System Security Status")
+if cipher:
+    st.success("Fernet Encryption Engine: **Active**")
+
             else:
                 st.error("Encryption Engine: **Offline**")
             st.divider()
