@@ -457,7 +457,7 @@ if admin_mode == "Admin Portal":
             st.plotly_chart(fig_rel, use_container_width=True)
             
             st.markdown("Reliability Verdict")
-            st.info("**Verdict:** Prediction reliability is verified. The current LSTM weights align with physical fuel combustion constraints for the 2024-2026 vehicle dataset.")
+            st.info("**Verdict:** Prediction reliability is verified. The current LSTM weights align with physical fuel combustion constraints for the 2026 vehicle dataset.")
 
         # Audit Trail.
         elif admin_task == "Audit Trail":
